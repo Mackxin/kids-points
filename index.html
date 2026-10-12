@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>儿童积分银行 · 小积分大学问</title>
+<!-- 导出功能依赖：html2canvas(截图) + jsPDF(生成PDF)，使用国内CDN保证加载速度 -->
+<script src="https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+/* ========== 基础变量：清新简约配色 ========== */
+:root{
+  --bg:#f5f7fa;          /* 页面底色 */
+  --card:#ffffff;        /* 卡片白 */
+  --ink:#2f3542;         /* 主文字 */
+  --sub:#8a94a6;         /* 次要文字 */
+  --plus:#2fb380;        /* 加分绿 */
+  --plus-bg:#e8f8f1;
+  --minus:#f0655a;       /* 扣分红 */
+  --minus-bg:#fdeeed;
+  --gold:#f5a623;        /* 积分金 */
+  --gold-bg:#fff6e5;
+  --purple:#7c6cf0;      /* 兑换紫 */
+  --purple-bg:#f0eeff;
+  --line:#eef0f4;
+  --radius:16px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--ink);
+  min-height:100vh;
+}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select{font-family:inherit;outline:none}
+
+/* ========== 顶部区域 ========== */
+.header{
+  background:linear-gradient(135deg,#ffb347 0%,#ff8a5c 55%,#f0655a 100%);
+  padding:22px 18px 64px;color:#fff;
+  border-radius:0 0 28px 28px;
+}
+.header-top{display:flex;justify-content:space-between;align-items:flex-start}
+.header h1{font-size:19px;font-weight:700;letter-spacing:1px}
+.header .subtitle{font-size:12px;opacity:.85;margin-top:3px}
+.export-btns{display:flex;gap:8px}
+.export-btns button{
+  background:rgba(255,255,255,.22);color:#fff;font-size:12px;
+  padding:7px 12px;border-radius:20px;display:flex;align-items:center;gap:4px;
+  transition:background .2s;
+}
+.export-btns button:active{background:rgba(255,255,255,.4)}
+
+/* 积分余额卡：压在头部渐变和内容之间 */
+.balance-card{
+  margin:-48px 14px 0;background:var(--card);border-radius:var(--radius);
+  padding:18px;box-shadow:0 8px 24px rgba(240,101,90,.12);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.balance-main .label{font-size:12px;color:var(--sub)}
+.balance-main .num{font-size:38px;font-weight:800;color:var(--gold);line-height:1.15}
+.balance-main .num small{font-size:15px;font-weight:600;color:var(--gold)}
+.balance-side{text-align:right;font-size:12px;color:var(--sub);line-height:1.9}
+.balance-side b{color:var(--plus);font-size:15px}
+.balance-side b.minus{color:var(--minus)}
+
+/* ========== 底部导航 ========== */
+nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:50;
+  background:var(--card);display:flex;
+  border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+nav button{
+  flex:1;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;
+  font-size:11px;color:var(--sub);transition:color .2s;
+}
+nav button .ico{font-size:22px;line-height:1}
+nav button.active{color:var(--gold);font-weight:700}
+
+/* ========== 主内容区 ========== */
+main{padding:14px 14px 90px;max-width:760px;margin:0 auto}
+
+/* 桌面端：记分页左右两栏 */
+@media(min-width:640px){
+  .record-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+}
+/* 移动端：自定义记分换行排布，避免溢出屏幕 */
+@media(max-width:639px){
+  .quick-row{flex-wrap:wrap}
+  .quick-row input[name=reason]{flex:1 1 100%;order:5}
+  .quick-row .go{margin-left:auto}
+}
+.tab-page{display:none}
+.tab-page.active{display:block;animation:fadein .25s}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ========== 卡片通用 ========== */
+.card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card-title{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.card-title .tag{font-size:11px;font-weight:400;color:var(--sub)}
+
+/* ========== 记分页 ========== */
+/* 自定义快速记分 */
+.quick-row{display:flex;gap:8px;margin-bottom:14px}
+.quick-row .mode{
+  flex-shrink:0;width:74px;border-radius:12px;font-size:14px;font-weight:700;
+  padding:10px 0;transition:all .2s;
+}
+.mode.plus{background:var(--plus-bg);color:var(--plus)}
+.mode.minus{background:var(--minus-bg);color:var(--minus)}
+.mode.sel-plus{background:var(--plus);color:#fff}
+.mode.sel-minus{background:var(--minus);color:#fff}
+.quick-row input[name=amount]{
+  width:70px;text-align:center;border:1.5px solid var(--line);border-radius:12px;
+  font-size:16px;font-weight:700;color:var(--ink);
+}
+.quick-row input[name=reason]{
+  flex:1;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;
+}
+.quick-row .go{
+  flex-shrink:0;background:var(--gold);color:#fff;font-weight:700;
+  border-radius:12px;padding:0 18px;font-size:14px;
+}
+.quick-row .go:active{opacity:.8}
+
+/* 分类分组 + 项目按钮 */
+.item-group{margin-bottom:6px}
+.group-head{
+  font-size:13px;font-weight:700;color:var(--sub);margin:12px 0 8px;
+  display:flex;align-items:center;gap:6px;
+}
+.group-head::after{content:"";flex:1;height:1px;background:var(--line)}
+.chip-wrap{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  display:flex;align-items:center;gap:6px;
+  background:var(--plus-bg);color:var(--ink);
+  border-radius:20px;padding:8px 12px;font-size:13px;
+  transition:transform .1s,box-shadow .2s;
+  border:1px solid transparent;
+}
+.chip:active{transform:scale(.93)}
+.chip .pts{
+  font-weight:800;color:var(--plus);font-size:12px;
+  background:#fff;border-radius:10px;padding:1px 7px;
+}
+.chip.minus{background:var(--minus-bg)}
+.chip.minus .pts{color:var(--minus)}
+
+/* ========== 明细页 ========== */
+.stat-row{display:flex;gap:10px;margin-bottom:14px}
+.stat-box{
+  flex:1;background:var(--card);border-radius:var(--radius);padding:12px;text-align:center;
+}
+.stat-box .v{font-size:20px;font-weight:800}
+.stat-box .l{font-size:11px;color:var(--sub);margin-top:2px}
+.stat-box.green .v{color:var(--plus)}
+.stat-box.red .v{color:var(--minus)}
+.stat-box.gold .v{color:var(--gold)}
+
+/* 七日柱状图（纯CSS，导出无压力） */
+.chart-box{display:flex;align-items:flex-end;justify-content:space-between;height:110px;padding:0 4px;margin-top:6px}
+.chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.chart-bar{
+  width:56%;max-width:34px;border-radius:6px 6px 3px 3px;min-height:3px;
+  background:linear-gradient(180deg,#ffd166,var(--gold));
+  transition:height .4s;position:relative;
+}
+.chart-bar.neg{background:linear-gradient(180deg,#ff9a8d,var(--minus))}
+.chart-col .day{font-size:10px;color:var(--sub)}
+.chart-col .val{font-size:10px;font-weight:700;color:var(--sub)}
+
+/* 记录列表 */
+.record-item{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 4px;border-bottom:1px solid var(--line);
+}
+.record-item:last-child{border-bottom:none}
+.record-ico{
+  width:36px;height:36px;border-radius:12px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+}
+.record-ico.reward{background:var(--plus-bg)}
+.record-ico.punish{background:var(--minus-bg)}
+.record-ico.exchange{background:var(--purple-bg)}
+.record-mid{flex:1;min-width:0}
+.record-mid .name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.record-mid .time{font-size:11px;color:var(--sub);margin-top:2px}
+.record-pts{font-size:16px;font-weight:800;flex-shrink:0}
+.record-pts.plus{color:var(--plus)}
+.record-pts.minus{color:var(--minus)}
+.record-del{
+  flex-shrink:0;width:26px;height:26px;border-radius:50%;
+  color:#c3c9d4;font-size:15px;display:flex;align-items:center;justify-content:center;
+}
+.record-del:active{background:var(--minus-bg);color:var(--minus)}
+.day-label{
+  font-size:12px;color:var(--sub);font-weight:700;
+  margin:14px 0 4px;display:flex;align-items:center;gap:8px;
+}
+.filter-row{display:flex;gap:8px;margin-bottom:12px}
+.filter-row button{
+  font-size:12px;padding:6px 14px;border-radius:16px;
+  background:var(--card);color:var(--sub);border:1px solid var(--line);
+}
+.filter-row button.on{background:var(--gold);color:#fff;border-color:var(--gold);font-weight:700}
+.empty{text-align:center;color:var(--sub);font-size:13px;padding:34px 0}
+
+/* ========== 兑换页 ========== */
+.exchange-item{
+  display:flex;align-items:center;gap:12px;
+  background:var(--card);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;
+}
+.exchange-item .gift{
+  width:44px;height:44px;border-radius:14px;background:var(--purple-bg);
+  display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;
+}
+.exchange-item .info{flex:1;min-width:0}
+.exchange-item .name{font-size:14px;font-weight:700}
+.exchange-item .cost{font-size:12px;color:var(--purple);font-weight:700;margin-top:2px}
+.exchange-item .cost small{color:var(--sub);font-weight:400}
+.exchange-btn{
+  flex-shrink:0;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:700;
+  background:var(--purple);color:#fff;transition:all .2s;
+}
+.exchange-btn:disabled{background:var(--line);color:#b8bfcc}
+.exchange-btn:not(:disabled):active{transform:scale(.94)}
+.exchange-note{
+  font-size:12px;color:var(--sub);background:var(--gold-bg);
+  border-radius:12px;padding:10px 14px;line-height:1.7;
+}
+/* 兑换进度条 */
+.progress-wrap{margin:4px 0 12px}
+.progress-track{height:10px;background:var(--line);border-radius:6px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,#a89bff,var(--purple));border-radius:6px;transition:width .5s}
+.progress-text{font-size:11px;color:var(--sub);margin-top:5px}
+
+/* ========== 设置页 ========== */
+.setting-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 4px;border-bottom:1px solid var(--line);
+}
+.setting-row:last-child{border-bottom:none}
+.setting-row .name{flex:1;font-size:14px}
+.setting-row .pts{font-size:13px;font-weight:800;color:var(--plus);flex-shrink:0}
+.setting-row .pts.minus{color:var(--minus)}
+.setting-row .pts.cost{color:var(--purple)}
+.mini-btn{
+  width:28px;height:28px;border-radius:9px;font-size:13px;flex-shrink:0;
+  background:var(--bg);color:var(--sub);display:flex;align-items:center;justify-content:center;
+}
+.mini-btn.del:active{background:var(--minus-bg);color:var(--minus)}
+.add-form{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.add-form input{
+  border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;
+}
+.add-form input[name=iname]{flex:1;min-width:130px}
+.add-form input[name=ipts]{width:64px;text-align:center}
+.add-form button{
+  background:var(--gold);color:#fff;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;
+}
+.danger-btn{
+  width:100%;padding:12px;border-radius:12px;font-size:14px;font-weight:700;
+  background:var(--minus-bg);color:var(--minus);margin-top:8px;
+}
+.safe-btn{
+  width:100%;padding:12px;border-radius:12px;font-size:14px;font-weight:700;
+  background:var(--plus-bg);color:var(--plus);margin-top:8px;
+}
+.name-input{
+  border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;width:100%;
+}
+
+/* ========== 弹窗（编辑项目用） ========== */
+.modal-mask{
+  position:fixed;inset:0;background:rgba(47,53,66,.45);z-index:100;
+  display:none;align-items:center;justify-content:center;padding:24px;
+}
+.modal-mask.show{display:flex}
+.modal{
+  background:#fff;border-radius:20px;padding:22px;width:100%;max-width:340px;
+  animation:pop .2s;
+}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.modal h3{font-size:16px;margin-bottom:16px;text-align:center}
+.modal input{
+  width:100%;border:1.5px solid var(--line);border-radius:12px;
+  padding:11px 14px;font-size:15px;margin-bottom:10px;
+}
+.modal-btns{display:flex;gap:10px;margin-top:6px}
+.modal-btns button{flex:1;padding:11px;border-radius:12px;font-size:14px;font-weight:700}
+.modal-btns .cancel{background:var(--bg);color:var(--sub)}
+.modal-btns .ok{background:var(--gold);color:#fff}
+
+/* ========== 轻提示 ========== */
+.toast{
+  position:fixed;left:50%;top:18%;transform:translateX(-50%) scale(.8);
+  background:rgba(47,53,66,.88);color:#fff;font-size:14px;font-weight:600;
+  padding:11px 22px;border-radius:24px;z-index:200;opacity:0;pointer-events:none;
+  transition:all .25s;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) scale(1)}
+
+/* ========== 导出报告（隐藏节点，导出时渲染） ========== */
+#report{
+  position:fixed;left:-9999px;top:0;width:640px;
+  background:#fff;padding:30px 34px;font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+}
+#report .rp-head{text-align:center;margin-bottom:6px}
+#report .rp-head .t{font-size:24px;font-weight:800;color:#f5a623}
+#report .rp-head .d{font-size:12px;color:#8a94a6;margin-top:4px}
+#report .rp-balance{
+  display:flex;justify-content:space-around;background:#fff6e5;border-radius:14px;
+  padding:16px;margin:16px 0;text-align:center;
+}
+#report .rp-balance .v{font-size:26px;font-weight:800}
+#report .rp-balance .l{font-size:12px;color:#8a94a6;margin-top:2px}
+#report table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+#report th{background:#f5f7fa;color:#5a6474;padding:8px;text-align:left;font-weight:700}
+#report td{padding:7px 8px;border-bottom:1px solid #eef0f4;color:#2f3542}
+#report .sec{font-size:15px;font-weight:800;color:#2f3542;margin:18px 0 4px}
+#report .sec small{font-size:11px;color:#8a94a6;font-weight:400}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部 ===== -->
+<header class="header">
+  <div class="header-top">
+    <div>
+      <h1>⭐ <span id="appTitle">儿童积分银行</span></h1>
+      <div class="subtitle">好习惯 · 每天存一点</div>
+    </div>
+    <div class="export-btns">
+      <button onclick="exportImage()">🖼 导出图片</button>
+      <button onclick="exportPDF()">📄 导出PDF</button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 积分余额卡 ===== -->
+<div class="balance-card">
+  <div class="balance-main">
+    <div class="label">💰 当前总积分</div>
+    <div class="num"><span id="totalPts">0</span><small> 分</small></div>
+  </div>
+  <div class="balance-side">
+    今日 <b id="todayPts">+0</b><br>
+    本周 <b id="weekPts">+0</b>
+  </div>
+</div>
+
+<main>
+  <!-- ================= 记分页 ================= -->
+  <section id="tab-record" class="tab-page active">
+    <!-- 自定义快速记分：不在列表里的临时加/扣分 -->
+    <div class="card">
+      <div class="card-title">✏️ 自定义记分 <span class="tag">列表里没有的可以在这里加</span></div>
+      <div class="quick-row">
+        <button class="mode plus sel-plus" id="modePlus" onclick="setMode('plus')">😊 加分</button>
+        <button class="mode minus" id="modeMinus" onclick="setMode('minus')">😖 扣分</button>
+        <input type="number" name="amount" id="quickAmount" placeholder="分" value="1">
+        <input type="text" name="reason" id="quickReason" placeholder="原因，如：帮妈妈买菜" maxlength="20">
+        <button class="go" onclick="quickAdd()">记一笔</button>
+      </div>
+    </div>
+
+    <!-- 奖励 + 惩罚 两栏（桌面）/ 上下（移动） -->
+    <div class="record-grid">
+      <div class="card">
+        <div class="card-title">🌟 奖励项目 <span class="tag">点一下就记好</span></div>
+        <div id="rewardGroups"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">⚠️ 惩罚项目 <span class="tag">做了错事要扣分哦</span></div>
+        <div class="item-group">
+          <div class="chip-wrap" id="punishWrap"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 明细页 ================= -->
+  <section id="tab-history" class="tab-page">
+    <div class="stat-row">
+      <div class="stat-box gold"><div class="v" id="statTotal">0</div><div class="l">总积分</div></div>
+      <div class="stat-box green"><div class="v" id="statPlus">0</div><div class="l">累计加分</div></div>
+      <div class="stat-box red"><div class="v" id="statMinus">0</div><div class="l">累计扣减</div></div>
+    </div>
+
+    <!-- 近7天积分柱状图 -->
+    <div class="card">
+      <div class="card-title">📈 近 7 天积分走势</div>
+      <div class="chart-box" id="chartBox"></div>
+    </div>
+
+    <!-- 记录明细 -->
+    <div class="card">
+      <div class="card-title">📋 记录明细 <span class="tag">点 × 可撤销该笔</span></div>
+      <div class="filter-row">
+        <button class="on" data-f="all" onclick="setFilter('all',this)">全部</button>
+        <button data-f="reward" onclick="setFilter('reward',this)">奖励</button>
+        <button data-f="punish" onclick="setFilter('punish',this)">惩罚</button>
+        <button data-f="exchange" onclick="setFilter('exchange',this)">兑换</button>
+      </div>
+      <div id="recordList"></div>
+    </div>
+  </section>
+
+  <!-- ================= 兑换页 ================= -->
+  <section id="tab-exchange" class="tab-page">
+    <!-- 距离最近目标进度 -->
+    <div class="card" id="progressCard">
+      <div class="card-title">🎯 下一个目标</div>
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
+        <div class="progress-text" id="progText"></div>
+      </div>
+    </div>
+    <div id="exchangeList"></div>
+    <div class="exchange-note">📢 特别声明：任意礼物包括零食、玩具、积木等。<br>⏰ 一周兑换积分奖励，过时不兑换哦！</div>
+  </section>
+
+  <!-- ================= 设置页 ================= -->
+  <section id="tab-settings" class="tab-page">
+    <div class="card">
+      <div class="card-title">👶 宝宝名字</div>
+      <input class="name-input" id="childName" placeholder="输入宝宝的名字" maxlength="10">
+    </div>
+    <div class="card">
+      <div class="card-title">🌟 奖励项目管理 <span class="tag">点 ✎ 改 / × 删</span></div>
+      <div id="setRewards"></div>
+      <div class="add-form">
+        <input type="text" name="iname" id="addRewardName" placeholder="新奖励项目名称" maxlength="20">
+        <input type="number" name="ipts" id="addRewardPts" placeholder="分值">
+        <button onclick="addItem('reward')">➕ 添加</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">⚠️ 惩罚项目管理</div>
+      <div id="setPunish"></div>
+      <div class="add-form">
+        <input type="text" name="iname" id="addPunishName" placeholder="新惩罚项目名称" maxlength="20">
+        <input type="number" name="ipts" id="addPunishPts" placeholder="扣几分">
+        <button onclick="addItem('punish')">➕ 添加</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🎁 兑换项目管理</div>
+      <div id="setExchange"></div>
+      <div class="add-form">
+        <input type="text" name="iname" id="addExName" placeholder="新兑换项目名称" maxlength="20">
+        <input type="number" name="ipts" id="addExPts" placeholder="需要积分">
+        <button onclick="addItem('exchange')">➕ 添加</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">💾 数据管理</div>
+      <button class="safe-btn" onclick="backupJSON()">📤 备份数据（导出JSON文件）</button>
+      <button class="safe-btn" onclick="document.getElementById('restoreFile').click()">📥 恢复数据（导入JSON文件）</button>
+      <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restoreJSON(this)">
+      <button class="danger-btn" onclick="resetAll()">🗑 清空所有数据（谨慎！）</button>
+    </div>
+  </section>
+</main>
+
+<!-- ===== 底部导航 ===== -->
+<nav>
+  <button class="active" data-tab="record" onclick="switchTab('record',this)"><span class="ico">📝</span>记分</button>
+  <button data-tab="history" onclick="switchTab('history',this)"><span class="ico">📊</span>明细</button>
+  <button data-tab="exchange" onclick="switchTab('exchange',this)"><span class="ico">🎁</span>兑换</button>
+  <button data-tab="settings" onclick="switchTab('settings',this)"><span class="ico">⚙️</span>设置</button>
+</nav>
+
+<!-- 编辑项目弹窗 -->
+<div class="modal-mask" id="editModal">
+  <div class="modal">
+    <h3>✎ 编辑项目</h3>
+    <input type="text" id="editName" placeholder="项目名称" maxlength="20">
+    <input type="number" id="editPts" placeholder="分值">
+    <div class="modal-btns">
+      <button class="cancel" onclick="closeEdit()">取消</button>
+      <button class="ok" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 导出报告的隐藏渲染节点 -->
+<div id="report"></div>
+
+<script>
+/* ==========================================================
+   儿童积分银行 · 单文件应用
+   数据全部存在浏览器 localStorage，刷新/关机都不丢
+   ========================================================== */
+
+/* ---------- 默认数据（来自小宝的积分制度表） ---------- */
+const DEFAULT_REWARDS = [
+  // 学习习惯
+  {id:1,  cat:'📚 学习习惯', name:'坚持晨读20分钟',            pts:5},
+  {id:2,  cat:'📚 学习习惯', name:'坚持课外阅读30分钟',          pts:5},
+  {id:3,  cat:'📚 学习习惯', name:'按时起床叠被子',              pts:2},
+  {id:4,  cat:'📚 学习习惯', name:'刷牙洗脸',                    pts:2},
+  // 生活习惯
+  {id:5,  cat:'🏠 生活习惯', name:'扫地',                        pts:1},
+  {id:6,  cat:'🏠 生活习惯', name:'吃饭不挑食不浪费（青菜肉类）', pts:5},
+  {id:7,  cat:'🏠 生活习惯', name:'拖地',                        pts:1},
+  {id:8,  cat:'🏠 生活习惯', name:'晚10点前上床睡觉',            pts:3},
+  {id:9,  cat:'🏠 生活习惯', name:'中午午睡',                    pts:3},
+  {id:10, cat:'🏠 生活习惯', name:'保持一天不惹奶奶生气',        pts:5},
+  {id:11, cat:'🏠 生活习惯', name:'自己洗内裤、袜子',            pts:1},
+  {id:12, cat:'🏠 生活习惯', name:'洗碗',                        pts:2},
+  {id:13, cat:'🏠 生活习惯', name:'饭前端菜、摆碗筷',            pts:2},
+  {id:14, cat:'🏠 生活习惯', name:'饭后收拾桌子',                pts:1},
+  {id:15, cat:'🏠 生活习惯', name:'扔垃圾',                      pts:1},
+  {id:16, cat:'🏠 生活习惯', name:'跳绳100下',                   pts:2},
+  // 学习科目
+  {id:17, cat:'✏️ 学习科目', name:'单元测试90分以上',            pts:5},
+  {id:18, cat:'✏️ 学习科目', name:'单元测试95分以上',            pts:10},
+  // 学习成绩
+  {id:19, cat:'🏆 学习成绩', name:'获得学校的奖状',              pts:10},
+  {id:20, cat:'🏆 学习成绩', name:'课堂听写、默写满分',          pts:5},
+  {id:21, cat:'🏆 学习成绩', name:'被老师表扬',                  pts:5},
+];
+const DEFAULT_PUNISH = [
+  {id:101, name:'发脾气/顶嘴',        pts:3},
+  {id:102, name:'没完成作业',         pts:5},
+  {id:103, name:'超时看电视/玩手机',  pts:3},
+];
+const DEFAULT_EXCHANGE = [
+  {id:201, name:'买任意礼物 5元以内',  pts:50},
+  {id:202, name:'买任意礼物 10元以内', pts:80},
+  {id:203, name:'买任意礼物 20元以内', pts:100},
+  {id:204, name:'买任意礼物 50元以内', pts:250},
+];
+
+/* ---------- 本地存储 ---------- */
+const KEY = 'kids-points-app-v1';
+let db = load();  // 全局数据对象
+
+function load(){
+  try{
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if(d && d.rewards) return d;
+  }catch(e){}
+  // 第一次打开：写入默认数据
+  return {
+    childName:'',
+    rewards:  JSON.parse(JSON.stringify(DEFAULT_REWARDS)),
+    punish:   JSON.parse(JSON.stringify(DEFAULT_PUNISH)),
+    exchange: JSON.parse(JSON.stringify(DEFAULT_EXCHANGE)),
+    records: [],  // {id, kind:'reward'|'punish'|'exchange', name, pts(带符号), time}
+  };
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+
+/* ---------- 小工具 ---------- */
+const $ = s => document.querySelector(s);
+let uid = Date.now();
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 1600);
+}
+function fmtTime(ts){
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getMonth()+1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function dayKey(ts){
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+/* ---------- 统计计算 ---------- */
+function totalPts(){ return db.records.reduce((s,r)=>s+r.pts,0); }
+function todayPts(){
+  const k = dayKey(Date.now());
+  return db.records.filter(r=>dayKey(r.time)===k).reduce((s,r)=>s+r.pts,0);
+}
+function weekPts(){
+  // 本周 = 从本周一 0 点开始
+  const now = new Date(); now.setHours(0,0,0,0);
+  const dow = (now.getDay()+6)%7;   // 周一=0
+  const monday = now.getTime() - dow*86400000;
+  return db.records.filter(r=>r.time>=monday).reduce((s,r)=>s+r.pts,0);
+}
+
+/* ---------- 顶部余额刷新 ---------- */
+function renderBalance(){
+  $('#totalPts').textContent = totalPts();
+  const t = todayPts(), w = weekPts();
+  $('#todayPts').textContent = (t>=0?'+':'')+t;
+  $('#todayPts').className = t<0?'minus':'';
+  $('#weekPts').textContent = (w>=0?'+':'')+w;
+  $('#weekPts').className = w<0?'minus':'';
+}
+
+/* ---------- 页签切换 ---------- */
+function switchTab(name, btn){
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+  $('#tab-'+name).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  window.scrollTo(0,0);
+}
+
+/* ================= 记分页 ================= */
+let quickMode = 'plus';   // 自定义记分当前模式
+function setMode(m){
+  quickMode = m;
+  $('#modePlus').className  = 'mode plus'  + (m==='plus' ? ' sel-plus':'');
+  $('#modeMinus').className = 'mode minus' + (m==='minus'? ' sel-minus':'');
+}
+function quickAdd(){
+  const amt = parseInt($('#quickAmount').value)||0;
+  const reason = $('#quickReason').value.trim();
+  if(amt<=0) return toast('请填写正确的分数哦');
+  if(!reason) return toast('写一下原因吧～');
+  addRecord(quickMode==='plus'?'reward':'punish', reason, quickMode==='plus'?amt:-amt);
+  $('#quickReason').value = '';
+  $('#quickAmount').value = 1;
+}
+
+// 记一笔（统一入口）
+function addRecord(kind, name, pts){
+  db.records.unshift({id:++uid, kind, name, pts, time:Date.now()});
+  save();
+  renderAll();
+  toast((pts>0?'🎉 +':'📉 ')+pts+' 分 · '+name);
+}
+
+// 渲染奖励项目（按分类分组）
+function renderRewardGroups(){
+  const box = $('#rewardGroups');
+  const cats = [...new Set(db.rewards.map(r=>r.cat))];
+  box.innerHTML = cats.map(cat=>`
+    <div class="item-group">
+      <div class="group-head">${cat}</div>
+      <div class="chip-wrap">
+        ${db.rewards.filter(r=>r.cat===cat).map(r=>`
+          <button class="chip" onclick="addRecord('reward','${r.name.replace(/'/g,"\\'")}',${r.pts})">
+            ${r.name}<span class="pts">+${r.pts}</span>
+          </button>`).join('')}
+      </div>
+    </div>`).join('');
+}
+// 渲染惩罚项目
+function renderPunish(){
+  $('#punishWrap').innerHTML = db.punish.map(p=>`
+    <button class="chip minus" onclick="addRecord('punish','${p.name.replace(/'/g,"\\'")}',-${p.pts})">
+      ${p.name}<span class="pts">-${p.pts}</span>
+    </button>`).join('');
+}
+
+/* ================= 明细页 ================= */
+let curFilter = 'all';
+function setFilter(f, btn){
+  curFilter = f;
+  document.querySelectorAll('.filter-row button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderRecords();
+}
+const KIND_ICON = {reward:'🌟', punish:'⚠️', exchange:'🎁'};
+const KIND_NAME = {reward:'奖励', punish:'惩罚', exchange:'兑换'};
+
+function renderStats(){
+  const plus  = db.records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0);
+  const minus = db.records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0);
+  $('#statTotal').textContent = totalPts();
+  $('#statPlus').textContent  = '+'+plus;
+  $('#statMinus').textContent = String(minus);
+}
+// 近7天柱状图
+function renderChart(){
+  const box = $('#chartBox');
+  const days = [];
+  for(let i=6;i>=0;i--){
+    const d = new Date(); d.setHours(0,0,0,0);
+    d.setDate(d.getDate()-i);
+    days.push(d);
+  }
+  const data = days.map(d=>{
+    const s = d.getTime(), e = s+86400000;
+    const sum = db.records.filter(r=>r.time>=s && r.time<e).reduce((a,r)=>a+r.pts,0);
+    return {label:`${d.getMonth()+1}/${d.getDate()}`, sum};
+  });
+  const max = Math.max(10, ...data.map(x=>Math.abs(x.sum)));
+  box.innerHTML = data.map(x=>{
+    const h = Math.max(3, Math.round(Math.abs(x.sum)/max*82));
+    return `<div class="chart-col">
+      <span class="val">${x.sum>0?'+':''}${x.sum}</span>
+      <div class="chart-bar ${x.sum<0?'neg':''}" style="height:${h}px"></div>
+      <span class="day">${x.label}</span>
+    </div>`;
+  }).join('');
+}
+// 记录列表（按天分组）
+function renderRecords(){
+  const list = db.records.filter(r=>curFilter==='all'||r.kind===curFilter);
+  const box = $('#recordList');
+  if(!list.length){
+    box.innerHTML = '<div class="empty">还没有记录，快去记分吧～ 🌈</div>';
+    return;
+  }
+  // 按日期分组
+  const groups = {};
+  list.forEach(r=>{
+    const k = dayKey(r.time);
+    (groups[k]=groups[k]||[]).push(r);
+  });
+  box.innerHTML = Object.keys(groups).map(k=>{
+    const [y,m,d] = k.split('-');
+    const weekday = '日一二三四五六'[new Date(k).getDay()];
+    return `<div class="day-label">📅 ${m}月${d}日 星期${weekday}</div>` +
+      groups[k].map(r=>`
+      <div class="record-item">
+        <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
+        <div class="record-mid">
+          <div class="name">${r.name}</div>
+          <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
+        </div>
+        <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
+        <button class="record-del" title="撤销" onclick="delRecord(${r.id})">×</button>
+      </div>`).join('');
+  }).join('');
+}
+// 撤销一笔记录
+function delRecord(id){
+  const i = db.records.findIndex(r=>r.id===id);
+  if(i<0) return;
+  const r = db.records[i];
+  if(!confirm(`撤销这笔记录吗？\n「${r.name} ${r.pts>0?'+':''}${r.pts}分」`)) return;
+  db.records.splice(i,1);
+  save(); renderAll();
+  toast('已撤销 ↩️');
+}
+
+/* ================= 兑换页 ================= */
+function renderExchange(){
+  const total = totalPts();
+  // 按所需积分从小到大排序，方便找"够得着"的目标
+  const sorted = [...db.exchange].sort((a,b)=>a.pts-b.pts);
+  $('#exchangeList').innerHTML = sorted.map(e=>`
+    <div class="exchange-item">
+      <div class="gift">🎁</div>
+      <div class="info">
+        <div class="name">${e.name}</div>
+        <div class="cost">${e.pts} 分 <small>· 当前 ${total} 分</small></div>
+      </div>
+      <button class="exchange-btn" ${total<e.pts?'disabled':''}
+        onclick="doExchange(${e.id})">${total<e.pts?'还差 '+(e.pts-total):'立即兑换'}</button>
+    </div>`).join('');
+
+  // 进度：找第一个"还差一点点"的目标（第一个不够分的）
+  const next = sorted.find(e=>total<e.pts);
+  const done = sorted.filter(e=>total>=e.pts);
+  if(next){
+    const pct = Math.min(100, Math.round(total/next.pts*100));
+    $('#progFill').style.width = pct+'%';
+    $('#progText').textContent = `距离「${next.name}」还差 ${next.pts-total} 分（${total}/${next.pts}）`;
+  }else if(sorted.length){
+    const top = sorted[sorted.length-1];
+    $('#progFill').style.width = '100%';
+    $('#progText').textContent = `🎉 已经可以兑换最棒的「${top.name}」啦！`;
+  }else{
+    $('#progFill').style.width = '0%';
+    $('#progText').textContent = '先去设置页添加兑换项目吧';
+  }
+}
+function doExchange(id){
+  const e = db.exchange.find(x=>x.id===id);
+  if(!e) return;
+  if(totalPts() < e.pts) return toast('积分还不够哦，继续加油！');
+  if(!confirm(`确认用 ${e.pts} 分兑换「${e.name}」吗？`)) return;
+  db.records.unshift({id:++uid, kind:'exchange', name:'兑换 · '+e.name, pts:-e.pts, time:Date.now()});
+  save(); renderAll();
+  toast('🎁 兑换成功！记得给宝宝兑现承诺～');
+}
+
+/* ================= 设置页 ================= */
+function renderSettings(){
+  // 宝宝名字
+  $('#childName').value = db.childName;
+  // 奖励
+  $('#setRewards').innerHTML = db.rewards.map(r=>`
+    <div class="setting-row">
+      <div class="name">${r.name}</div>
+      <div class="pts">+${r.pts}</div>
+      <button class="mini-btn" onclick="openEdit('reward',${r.id})">✎</button>
+      <button class="mini-btn del" onclick="delItem('reward',${r.id})">×</button>
+    </div>`).join('');
+  // 惩罚
+  $('#setPunish').innerHTML = db.punish.map(p=>`
+    <div class="setting-row">
+      <div class="name">${p.name}</div>
+      <div class="pts minus">-${p.pts}</div>
+      <button class="mini-btn" onclick="openEdit('punish',${p.id})">✎</button>
+      <button class="mini-btn del" onclick="delItem('punish',${p.id})">×</button>
+    </div>`).join('');
+  // 兑换
+  $('#setExchange').innerHTML = db.exchange.map(e=>`
+    <div class="setting-row">
+      <div class="name">${e.name}</div>
+      <div class="pts cost">${e.pts}分</div>
+      <button class="mini-btn" onclick="openEdit('exchange',${e.id})">✎</button>
+      <button class="mini-btn del" onclick="delItem('exchange',${e.id})">×</button>
+    </div>`).join('');
+}
+$('#childName') && ($('#childName').oninput = function(){
+  db.childName = this.value.trim();
+  $('#appTitle').textContent = db.childName ? db.childName+'的积分银行' : '儿童积分银行';
+  save();
+});
+
+// 添加项目
+function addItem(kind){
+  const nameEl = kind==='reward'?$('#addRewardName'):kind==='punish'?$('#addPunishName'):$('#addExName');
+  const ptsEl  = kind==='reward'?$('#addRewardPts') :kind==='punish'?$('#addPunishPts') :$('#addExPts');
+  const name = nameEl.value.trim();
+  const pts = parseInt(ptsEl.value);
+  if(!name)  return toast('请填写项目名称');
+  if(!pts||pts<=0) return toast('请填写正确的分值');
+  if(kind==='reward'){
+    db.rewards.push({id:++uid, cat:'⭐ 自定义', name, pts});
+  }else if(kind==='punish'){
+    db.punish.push({id:++uid, name, pts});
+  }else{
+    db.exchange.push({id:++uid, name, pts});
+  }
+  save(); renderAll();
+  nameEl.value=''; ptsEl.value='';
+  toast('✅ 已添加「'+name+'」');
+}
+// 删除项目
+function delItem(kind, id){
+  const arr = kind==='reward'?db.rewards:kind==='punish'?db.punish:db.exchange;
+  const item = arr.find(x=>x.id===id);
+  if(!item) return;
+  if(!confirm(`删除项目「${item.name}」吗？\n（已有的积分记录不受影响）`)) return;
+  arr.splice(arr.indexOf(item),1);
+  save(); renderAll();
+  toast('已删除 🗑');
+}
+
+// 编辑弹窗
+let editTarget = null;   // {kind, id}
+function openEdit(kind, id){
+  const arr = kind==='reward'?db.rewards:kind==='punish'?db.punish:db.exchange;
+  const item = arr.find(x=>x.id===id);
+  if(!item) return;
+  editTarget = {kind, id};
+  $('#editName').value = item.name;
+  $('#editPts').value = item.pts;
+  $('#editModal').classList.add('show');
+}
+function closeEdit(){ $('#editModal').classList.remove('show'); }
+function saveEdit(){
+  if(!editTarget) return;
+  const name = $('#editName').value.trim();
+  const pts = parseInt($('#editPts').value);
+  if(!name) return toast('名称不能为空');
+  if(!pts||pts<=0) return toast('分值要大于0');
+  const arr = editTarget.kind==='reward'?db.rewards:editTarget.kind==='punish'?db.punish:db.exchange;
+  const item = arr.find(x=>x.id===editTarget.id);
+  if(item){ item.name=name; item.pts=pts; }
+  save(); renderAll(); closeEdit();
+  toast('✅ 已保存');
+}
+// 点弹窗遮罩关闭
+$('#editModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeEdit(); });
+
+/* ================= 数据备份与恢复 ================= */
+function backupJSON(){
+  const blob = new Blob([JSON.stringify(db,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `积分备份-${dayKey(Date.now())}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('📤 备份文件已下载');
+}
+function restoreJSON(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const d = JSON.parse(reader.result);
+      if(!d.rewards || !d.records) throw 0;
+      if(!confirm('导入会覆盖当前所有数据，确定继续吗？')) return;
+      db = d; save(); renderAll();
+      toast('📥 数据恢复成功');
+    }catch(e){ toast('文件格式不对哦'); }
+    input.value='';
+  };
+  reader.readAsText(file);
+}
+function resetAll(){
+  if(!confirm('⚠️ 将清空所有积分记录和自定义项目，且无法恢复！\n真的要清空吗？')) return;
+  if(!confirm('再确认一次：真的清空吗？')) return;
+  localStorage.removeItem(KEY);
+  db = load(); save(); renderAll();
+  toast('已清空，重新开始 🌱');
+}
+
+/* ================= 导出图片 / PDF ================= */
+function buildReport(){
+  // 组装一份"积分报告"HTML，渲染到隐藏节点，再用 html2canvas 截图
+  const total = totalPts();
+  const sortedEx = [...db.exchange].sort((a,b)=>a.pts-b.pts);
+  const recent = db.records.slice(0,30);   // 最近30笔
+  const now = new Date();
+  const rows = recent.map(r=>`
+    <tr>
+      <td>${fmtTime(r.time)}</td>
+      <td>${KIND_NAME[r.kind]}</td>
+      <td>${r.name}</td>
+      <td style="font-weight:700;color:${r.pts>0?'#2fb380':'#f0655a'}">${r.pts>0?'+':''}${r.pts}</td>
+    </tr>`).join('');
+  const exRows = sortedEx.map(e=>{
+    const ok = total>=e.pts;
+    return `<tr>
+      <td>${e.name}</td>
+      <td>${e.pts} 分</td>
+      <td style="color:${ok?'#2fb380':'#c3c9d4'};font-weight:700">${ok?'✅ 可兑换':`还差 ${e.pts-total} 分`}</td>
+    </tr>`;
+  }).join('');
+
+  $('#report').innerHTML = `
+    <div class="rp-head">
+      <div class="t">⭐ ${db.childName?db.childName+'的':''}积分报告</div>
+      <div class="d">生成时间：${fmtTime(Date.now())} · 好习惯每天存一点</div>
+    </div>
+    <div class="rp-balance">
+      <div><div class="v" style="color:#f5a623">${total}</div><div class="l">当前总积分</div></div>
+      <div><div class="v" style="color:#2fb380">+${db.records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
+      <div><div class="v" style="color:#f0655a">${db.records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
+    </div>
+    <div class="sec">🎁 兑换目标进度</div>
+    <table>
+      <tr><th>兑换项目</th><th>所需积分</th><th>状态</th></tr>
+      ${exRows || '<tr><td colspan=3>暂无兑换项目</td></tr>'}
+    </table>
+    <div class="sec">📋 最近记录 <small>（最多显示30笔）</small></div>
+    <table>
+      <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
+      ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
+    </table>`;
+}
+async function exportImage(){
+  if(typeof html2canvas === 'undefined') return toast('截图组件没加载出来，请联网后重试');
+  buildReport();
+  toast('正在生成图片…');
+  try{
+    const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `积分报告-${dayKey(Date.now())}.png`;
+    a.click();
+    toast('🖼 图片已导出');
+  }catch(e){ toast('生成失败，请重试'); }
+}
+async function exportPDF(){
+  if(typeof html2canvas === 'undefined' || !window.jspdf) return toast('PDF组件没加载出来，请联网后重试');
+  buildReport();
+  toast('正在生成PDF…');
+  try{
+    const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
+    const img = canvas.toDataURL('image/jpeg', 0.92);
+    const pdf = new jspdf.jsPDF('p','mm','a4');
+    // 按A4宽度等比缩放放置
+    const pw = 210, ph = canvas.height * pw / canvas.width;
+    pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
+    pdf.save(`积分报告-${dayKey(Date.now())}.pdf`);
+    toast('📄 PDF已导出');
+  }catch(e){ toast('生成失败，请重试'); }
+}
+
+/* ================= 总渲染 ================= */
+function renderAll(){
+  renderBalance();
+  renderRewardGroups();
+  renderPunish();
+  renderStats();
+  renderChart();
+  renderRecords();
+  renderExchange();
+  renderSettings();
+  if(db.childName) $('#appTitle').textContent = db.childName+'的积分银行';
+}
+renderAll();
+</script>
+</body>
+</html>
