@@ -360,6 +360,15 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 .modal-btns button{flex:1;padding:11px;border-radius:12px;font-size:14px;font-weight:700}
 .modal-btns .cancel{background:var(--bg);color:var(--sub)}
 .modal-btns .ok{background:var(--gold);color:#fff}
+/* 导出范围选择按钮 */
+.exp-opt{
+  display:block;width:100%;text-align:center;line-height:1.5;
+  border-radius:14px;padding:14px;margin-bottom:10px;font-size:15px;font-weight:700;
+  background:var(--plus-bg);color:var(--plus);transition:transform .1s;
+}
+.exp-opt small{font-size:11px;font-weight:400;color:var(--sub)}
+.exp-opt.family{background:var(--purple-bg);color:var(--purple)}
+.exp-opt:active{transform:scale(.96)}
 
 /* ========== 轻提示 ========== */
 .toast{
@@ -405,8 +414,8 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       <div class="subtitle">好习惯 · 每天存一点</div>
     </div>
     <div class="export-btns">
-      <button onclick="exportImage()">🖼 导出图片</button>
-      <button onclick="exportPDF()">📄 导出PDF</button>
+      <button onclick="askExport('image')">🖼 导出图片</button>
+      <button onclick="askExport('pdf')">📄 导出PDF</button>
     </div>
   </div>
 </header>
@@ -576,6 +585,17 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       <button class="cancel" onclick="closeEdit()">取消</button>
       <button class="ok" onclick="saveEdit()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- 导出范围选择弹窗 -->
+<div class="modal-mask" id="exportModal">
+  <div class="modal">
+    <h3>📤 选择导出范围</h3>
+    <div id="exportModalName" style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:14px"></div>
+    <button class="exp-opt" onclick="runExport('single')">👤 单人报告<br><small>只导出当前宝宝「<span id="expCurName"></span>」</small></button>
+    <button class="exp-opt family" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 · 兄弟姐妹互相鼓励</small></button>
+    <div class="modal-btns"><button class="cancel" onclick="closeExportModal()">取消</button></div>
   </div>
 </div>
 
@@ -1099,6 +1119,7 @@ function saveEdit(){
 }
 // 点弹窗遮罩关闭
 $('#editModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeEdit(); });
+$('#exportModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeExportModal(); });
 
 /* ================= 数据备份与恢复 ================= */
 function backupJSON(){
@@ -1137,7 +1158,9 @@ function resetAll(){
 /* ================= 导出图片 / PDF ================= */
 function buildReport(){
   // 组装一份"积分报告"HTML，渲染到隐藏节点，再用 html2canvas 截图
-  const multi = db.children.length > 1;
+  // mode: 'auto'(默认，>1宝宝才全家) | 'single'(单人) | 'family'(强制全家)
+  const mode = reportMode || 'auto';
+  const multi = mode==='family' || (mode==='auto' && db.children.length > 1);
   const quote = randomQuote();
   const nowStr = fmtTime(Date.now());
 
@@ -1233,6 +1256,7 @@ async function exportImage(){
     a.click();
     toast('🖼 图片已导出');
   }catch(e){ toast('生成失败，请重试'); }
+  reportMode = 'auto';
 }
 async function exportPDF(){
   if(typeof html2canvas === 'undefined' || !window.jspdf) return toast('PDF组件没加载出来，请联网后重试');
@@ -1248,6 +1272,26 @@ async function exportPDF(){
     pdf.save(`积分报告-${dayKey(Date.now())}.pdf`);
     toast('📄 PDF已导出');
   }catch(e){ toast('生成失败，请重试'); }
+  reportMode = 'auto';
+}
+
+/* ---------- 导出范围选择 ---------- */
+let reportMode = 'auto';     // 'auto' | 'single' | 'family'
+let pendingExport = null;    // 'image' | 'pdf'
+function askExport(type){
+  pendingExport = type;
+  if(db.children.length <= 1){ runExport('single'); return; }  // 只有一个宝宝直接单人
+  $('#exportModalName').textContent = '当前宝宝：' + C().name;
+  $('#expCurName').textContent = C().name;
+  $('#exportModal').classList.add('show');
+}
+function closeExportModal(){ $('#exportModal').classList.remove('show'); pendingExport = null; }
+function runExport(mode){
+  closeExportModal();
+  reportMode = mode;
+  if(pendingExport === 'image') exportImage();
+  else if(pendingExport === 'pdf') exportPDF();
+  pendingExport = null;
 }
 
 /* ================= 总渲染 ================= */
