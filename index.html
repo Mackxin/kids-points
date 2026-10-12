@@ -490,7 +490,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       <div id="kidsManage"></div>
       <div class="add-form">
         <input type="text" name="iname" id="addKidName" placeholder="新宝宝的名字" maxlength="10">
-        <button onclick="addChild()">➕ 添加宝宝</button>
+        <button onclick="addChildFromForm()">➕ 添加宝宝</button>
       </div>
     </div>
     <div class="card">
@@ -921,9 +921,23 @@ function renderKidsBar(){
     return `<button class="kid-chip ${k.id===db.cur?'on':''}" onclick="switchChild(${k.id})">
       ${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}<b>${pts}分</b>
     </button>`;
-  }).join('') + `<button class="kid-chip add" onclick="focusAddKid()">＋ 添加宝宝</button>`;
+  }).join('') + `<button class="kid-chip add" onclick="addChildPrompt()">＋ 添加宝宝</button>`;
 }
-function addChild(){
+// 顶部「＋添加宝宝」：直接弹窗输入，任何页面都能用
+function addChildPrompt(){
+  const name = prompt('给宝宝起个名字：');
+  if(name === null) return;                 // 用户点了取消
+  const n = name.trim();
+  if(!n) return toast('名字不能为空哦');
+  const kid = freshChild(n);
+  db.children.push(kid);
+  db.cur = kid.id;      // 添加后自动切到新宝宝
+  save(); renderAll();
+  toast('👶 欢迎「'+n+'」加入积分银行！');
+}
+function focusAddKid(){ $('#addKidName').scrollIntoView({behavior:'smooth',block:'center'}); $('#addKidName').focus(); }
+// 设置页表单版添加宝宝
+function addChildFromForm(){
   const name = $('#addKidName').value.trim();
   if(!name) return toast('先给宝宝起个名字吧');
   const kid = freshChild(name);
@@ -933,7 +947,6 @@ function addChild(){
   $('#addKidName').value = '';
   toast('👶 欢迎「'+name+'」加入积分银行！');
 }
-function focusAddKid(){ $('#addKidName').scrollIntoView({behavior:'smooth',block:'center'}); $('#addKidName').focus(); }
 function switchChild(id){
   if(db.cur === id) return;
   db.cur = id; save(); renderAll();
