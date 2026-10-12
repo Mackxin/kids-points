@@ -288,6 +288,21 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   max-width:1080px;margin:0 auto;scrollbar-width:none;
 }
 .kids-bar::-webkit-scrollbar{display:none}
+
+/* 今日寄语条 */
+.quote-strip{
+  max-width:1080px;margin:0 auto;padding:10px 18px 2px;
+  font-size:13px;color:var(--sub);text-align:center;line-height:1.6;
+}
+.quote-strip b{color:var(--gold)}
+
+/* 设置页性别选择 */
+.gender-sel{
+  border:1.5px solid var(--line);border-radius:9px;padding:5px 6px;
+  font-size:12px;color:var(--ink);background:var(--card);flex-shrink:0;
+}
+.settings-grid .add-form{width:100%;align-items:center}
+.settings-grid .add-form select[name=igender]{border:1.5px solid var(--line);border-radius:10px;padding:8px 8px;font-size:13px}
 .kid-chip{
   flex-shrink:0;display:flex;align-items:center;gap:6px;
   background:var(--card);border-radius:22px;padding:8px 14px;
@@ -374,6 +389,10 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 #report td{padding:7px 8px;border-bottom:1px solid #eef0f4;color:#2f3542}
 #report .sec{font-size:15px;font-weight:800;color:#2f3542;margin:18px 0 4px}
 #report .sec small{font-size:11px;color:#8a94a6;font-weight:400}
+#report .rp-quote{
+  margin-top:22px;padding:14px 18px;background:#fff6e5;border-radius:14px;
+  font-size:14px;color:#b07d2a;line-height:1.7;text-align:center;font-weight:600;
+}
 </style>
 </head>
 <body>
@@ -406,6 +425,9 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 
 <!-- 宝宝切换条：点谁记谁的分 -->
 <div class="kids-bar" id="kidsBar"></div>
+
+<!-- 今日寄语：每天一句励志话，给小朋友打气 -->
+<div class="quote-strip" id="quoteStrip"></div>
 
 <main>
   <!-- ================= 记分页 ================= -->
@@ -490,6 +512,11 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       <div id="kidsManage"></div>
       <div class="add-form">
         <input type="text" name="iname" id="addKidName" placeholder="新宝宝的名字" maxlength="10">
+        <select name="igender" id="addKidGender">
+          <option value="son">儿子</option>
+          <option value="daughter">女儿</option>
+          <option value="unknown">保密</option>
+        </select>
         <button onclick="addChildFromForm()">➕ 添加宝宝</button>
       </div>
     </div>
@@ -608,16 +635,44 @@ const KEY = 'kids-points-app-v2';
 let uid = Date.now();
 let db = load();  // 全局数据对象：{cur:当前宝宝id, children:[{id,name,rewards,punish,exchange,records}]}
 
-// 新建一个宝宝（各带一套默认项目）
-function freshChild(name){
+// 新建一个宝宝（各带一套默认项目），gender: 'son'儿子 / 'daughter'女儿 / 'unknown'保密
+function freshChild(name, gender){
   return {
-    id: ++uid, name: name || '宝宝',
+    id: ++uid, name: name || '宝宝', gender: gender || 'unknown',
     rewards:  JSON.parse(JSON.stringify(DEFAULT_REWARDS)),
     punish:   JSON.parse(JSON.stringify(DEFAULT_PUNISH)),
     exchange: JSON.parse(JSON.stringify(DEFAULT_EXCHANGE)),
     records: [],  // {id, kind:'reward'|'punish'|'exchange', name, pts(带符号), time}
   };
 }
+
+/* ---------- 性别标签 ---------- */
+const GENDER_LABEL = {son:'儿子', daughter:'女儿', unknown:'保密'};
+
+/* ---------- 励志寄语库（对儿童有益 / 父母愿望 / 兄弟姐妹互相鼓励） ---------- */
+const QUOTES = [
+  '每天进步一点点，未来就会大不同！🌱',
+  '书山有路勤为径，学海无涯苦作舟。📖',
+  '认真读书的孩子，眼里会有星星。✨',
+  '爸爸妈妈相信你，只要努力，没有做不到的事！💪',
+  '今天的努力，是明天惊喜的铺垫。🌈',
+  '少壮不努力，老大徒伤悲。⏳',
+  '读过的书，都会变成你脚下的路。🛤',
+  '爸爸妈妈最大的心愿，就是看到你认真读书、自信微笑。❤️',
+  '宝贝，爸爸妈妈希望你认真读书，健康快乐地长大。🌻',
+  '你的每一分努力，爸爸妈妈都看在眼里、记在心里。🥰',
+  '和兄弟姐妹比进步，不比聪明比坚持！🤝',
+  '哥哥姐姐弟弟妹妹一起加油，谁进步快谁最棒！🏆',
+  '你追我赶，全家人齐头并进，一起变更好！👨‍👩‍👧‍👦',
+  '不懂就问，不会就学，认真的孩子最可爱。🌟',
+];
+// 按日期取一句（每天固定，不随机跳）
+function dailyQuote(){
+  const day = Math.floor(Date.now()/86400000);
+  return QUOTES[day % QUOTES.length];
+}
+// 导出时随机一句，增加新鲜感
+function randomQuote(){ return QUOTES[Math.floor(Math.random()*QUOTES.length)]; }
 // 兼容旧版单宝宝数据（v1）→ 迁移成第一个宝宝
 function loadLegacy(){
   try{
@@ -635,6 +690,7 @@ function load(){
   try{
     const d = JSON.parse(localStorage.getItem(KEY));
     if(d && d.children && d.children.length){
+      d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; });  // 老数据补性别字段
       if(!d.children.find(c=>c.id===d.cur)) d.cur = d.children[0].id;
       return d;
     }
@@ -884,6 +940,11 @@ function renderSettings(){
         ${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}
         ${k.id===db.cur?'<span class="cur-badge">当前</span>':''}
       </div>
+      <select class="gender-sel" onchange="setKidGender(${k.id},this.value)">
+        <option value="son" ${k.gender==='son'?'selected':''}>儿子</option>
+        <option value="daughter" ${k.gender==='daughter'?'selected':''}>女儿</option>
+        <option value="unknown" ${k.gender==='unknown'?'selected':''}>保密</option>
+      </select>
       <div class="pts">${k.records.reduce((s,r)=>s+r.pts,0)}分</div>
       <button class="mini-btn" onclick="renameChild(${k.id})">✎</button>
       <button class="mini-btn del" onclick="delChild(${k.id})">×</button>
@@ -936,11 +997,20 @@ function addChildPrompt(){
   toast('👶 欢迎「'+n+'」加入积分银行！');
 }
 function focusAddKid(){ $('#addKidName').scrollIntoView({behavior:'smooth',block:'center'}); $('#addKidName').focus(); }
-// 设置页表单版添加宝宝
+// 切换性别
+function setKidGender(id, g){
+  const kid = db.children.find(c=>c.id===id);
+  if(!kid) return;
+  kid.gender = g;
+  save(); renderAll();
+  toast('已设为' + GENDER_LABEL[g]);
+}
+// 设置页表单版添加宝宝（带性别）
 function addChildFromForm(){
   const name = $('#addKidName').value.trim();
   if(!name) return toast('先给宝宝起个名字吧');
-  const kid = freshChild(name);
+  const g = $('#addKidGender').value;
+  const kid = freshChild(name, g);
   db.children.push(kid);
   db.cur = kid.id;      // 添加后自动切到新宝宝
   save(); renderAll();
@@ -1067,10 +1137,41 @@ function resetAll(){
 /* ================= 导出图片 / PDF ================= */
 function buildReport(){
   // 组装一份"积分报告"HTML，渲染到隐藏节点，再用 html2canvas 截图
+  const multi = db.children.length > 1;
+  const quote = randomQuote();
+  const nowStr = fmtTime(Date.now());
+
+  // —— 多宝宝：全家积分榜（按积分排序，互相鼓励） ——
+  let familyHTML = '';
+  if(multi){
+    const ranked = db.children.map(k=>({k, pts:k.records.reduce((s,r)=>s+r.pts,0)}))
+                               .sort((a,b)=>b.pts-a.pts);
+    const top = ranked[0], last = ranked[ranked.length-1];
+    const rows = ranked.map((x,i)=>{
+      const tag = x.k.id===top.k.id ? '<span style="color:#f5a623;font-weight:700">🏅 进步之星</span>'
+                 : (x.k.id===last.k.id && ranked.length>1 ? '<span style="color:#7c6cf0;font-weight:700">💪 继续加油</span>' : '');
+      return `<tr>
+        <td>${i+1}</td>
+        <td>${x.k.name}（${GENDER_LABEL[x.k.gender]||''}）</td>
+        <td style="font-weight:700;color:#f5a623">${x.pts} 分</td>
+        <td>${tag}</td>
+      </tr>`;
+    }).join('');
+    familyHTML = `
+      <div class="sec">👨‍👩‍👧‍👦 全家积分榜 · 互相鼓励一起进步</div>
+      <table>
+        <tr><th>名次</th><th>宝宝</th><th>总积分</th><th>状态</th></tr>
+        ${rows}
+      </table>
+      <div style="font-size:12px;color:#8a94a6;margin-top:6px;line-height:1.7">
+        💡 兄弟姐妹你追我赶，不比聪明比坚持！${top.k.name}暂时领先，其他小朋友加油追上哦～
+      </div>`;
+  }
+
+  // —— 当前宝宝明细 ——
   const total = totalPts();
   const sortedEx = [...C().exchange].sort((a,b)=>a.pts-b.pts);
   const recent = C().records.slice(0,30);   // 最近30笔
-  const now = new Date();
   const rows = recent.map(r=>`
     <tr>
       <td>${fmtTime(r.time)}</td>
@@ -1087,17 +1188,28 @@ function buildReport(){
     </tr>`;
   }).join('');
 
-  $('#report').innerHTML = `
-    <div class="rp-head">
-      <div class="t">⭐ ${C().name?C().name+'的':''}积分报告</div>
-      <div class="d">生成时间：${fmtTime(Date.now())} · 好习惯每天存一点</div>
-    </div>
+  const titleText = multi ? '👨‍👩‍👧‍👦 全家积分报告' : `⭐ ${C().name?C().name+'的':''}积分报告`;
+  // 单宝宝显示余额卡；多宝宝在家庭榜里已展示，这里仍给当前宝宝一份明细
+  const balanceHTML = multi ? `
+    <div class="rp-balance">
+      <div><div class="v" style="color:#f5a623">${total}</div><div class="l">${C().name}当前总积分</div></div>
+      <div><div class="v" style="color:#2fb380">+${C().records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
+      <div><div class="v" style="color:#f0655a">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
+    </div>` : `
     <div class="rp-balance">
       <div><div class="v" style="color:#f5a623">${total}</div><div class="l">当前总积分</div></div>
       <div><div class="v" style="color:#2fb380">+${C().records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
       <div><div class="v" style="color:#f0655a">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
+    </div>`;
+
+  $('#report').innerHTML = `
+    <div class="rp-head">
+      <div class="t">${titleText}</div>
+      <div class="d">生成时间：${nowStr} · 好习惯每天存一点</div>
     </div>
-    <div class="sec">🎁 兑换目标进度</div>
+    ${balanceHTML}
+    ${familyHTML}
+    <div class="sec">🎁 兑换目标进度（${C().name}）</div>
     <table>
       <tr><th>兑换项目</th><th>所需积分</th><th>状态</th></tr>
       ${exRows || '<tr><td colspan=3>暂无兑换项目</td></tr>'}
@@ -1106,7 +1218,8 @@ function buildReport(){
     <table>
       <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
       ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
-    </table>`;
+    </table>
+    <div class="rp-quote">💌 ${quote}</div>`;
 }
 async function exportImage(){
   if(typeof html2canvas === 'undefined') return toast('截图组件没加载出来，请联网后重试');
@@ -1140,6 +1253,7 @@ async function exportPDF(){
 /* ================= 总渲染 ================= */
 function renderAll(){
   renderKidsBar();
+  $('#quoteStrip').innerHTML = '💡 今日寄语：<b>' + dailyQuote() + '</b>';
   renderBalance();
   renderRewardGroups();
   renderPunish();
