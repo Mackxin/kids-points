@@ -4,9 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>儿童积分银行 · 小积分大学问</title>
-<!-- 导出功能依赖：html2canvas(截图) + jsPDF(生成PDF)，使用国内CDN保证加载速度 -->
+<!-- 导出功能依赖：html2canvas(截图) + jsPDF(生成PDF)，双CDN：主源失败自动切备用 -->
 <script src="https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>window.html2canvas || document.write('<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>')</script>
 <script src="https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>window.jspdf || document.write('<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"><\/script>')</script>
 <style>
 /* ========== 基础变量：清新简约配色 ========== */
 :root{
@@ -595,7 +597,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
     <div id="exportModalName" style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:14px"></div>
     <button class="exp-opt" onclick="runExport('single')">👤 单人报告<br><small>只导出当前宝宝「<span id="expCurName"></span>」</small></button>
     <button class="exp-opt family" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 · 兄弟姐妹互相鼓励</small></button>
-    <div class="modal-btns"><button class="cancel" onclick="closeExportModal()">取消</button></div>
+    <div class="modal-btns"><button class="cancel" onclick="cancelExport()">取消</button></div>
   </div>
 </div>
 
@@ -1119,7 +1121,7 @@ function saveEdit(){
 }
 // 点弹窗遮罩关闭
 $('#editModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeEdit(); });
-$('#exportModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeExportModal(); });
+$('#exportModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) cancelExport(); });
 
 /* ================= 数据备份与恢复 ================= */
 function backupJSON(){
@@ -1246,13 +1248,14 @@ function buildReport(){
 }
 async function exportImage(){
   if(typeof html2canvas === 'undefined') return toast('截图组件没加载出来，请联网后重试');
+  const scope = reportMode==='family' ? '全家' : (C().name||'单人');   // 文件名标注范围
   buildReport();
   toast('正在生成图片…');
   try{
     const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `积分报告-${dayKey(Date.now())}.png`;
+    a.download = `积分报告-${scope}-${dayKey(Date.now())}.png`;
     a.click();
     toast('🖼 图片已导出');
   }catch(e){ toast('生成失败，请重试'); }
@@ -1260,6 +1263,7 @@ async function exportImage(){
 }
 async function exportPDF(){
   if(typeof html2canvas === 'undefined' || !window.jspdf) return toast('PDF组件没加载出来，请联网后重试');
+  const scope = reportMode==='family' ? '全家' : (C().name||'单人');
   buildReport();
   toast('正在生成PDF…');
   try{
@@ -1269,7 +1273,7 @@ async function exportPDF(){
     // 按A4宽度等比缩放放置
     const pw = 210, ph = canvas.height * pw / canvas.width;
     pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
-    pdf.save(`积分报告-${dayKey(Date.now())}.pdf`);
+    pdf.save(`积分报告-${scope}-${dayKey(Date.now())}.pdf`);
     toast('📄 PDF已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
@@ -1285,13 +1289,15 @@ function askExport(type){
   $('#expCurName').textContent = C().name;
   $('#exportModal').classList.add('show');
 }
-function closeExportModal(){ $('#exportModal').classList.remove('show'); pendingExport = null; }
+function closeExportModal(){ $('#exportModal').classList.remove('show'); }
+function cancelExport(){ pendingExport = null; closeExportModal(); }
 function runExport(mode){
+  const type = pendingExport;      // ⚠️ 先取出类型再关弹窗（关弹窗会重置 pendingExport）
   closeExportModal();
-  reportMode = mode;
-  if(pendingExport === 'image') exportImage();
-  else if(pendingExport === 'pdf') exportPDF();
   pendingExport = null;
+  reportMode = mode;
+  if(type === 'image') exportImage();
+  else if(type === 'pdf') exportPDF();
 }
 
 /* ================= 总渲染 ================= */
