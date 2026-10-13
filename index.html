@@ -382,6 +382,21 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 .exp-opt small{font-size:11px;font-weight:400;color:var(--sub)}
 .exp-opt.family{background:var(--purple-bg);color:var(--purple)}
 .exp-opt:active{transform:scale(.96)}
+/* 导出时间范围选择 */
+.exp-section-title{font-size:13px;color:var(--sub);text-align:center;margin:14px 0 8px}
+.date-opt-row{display:flex;gap:6px}
+.date-opt{
+  flex:1;text-align:center;font-size:13px;font-weight:700;
+  border-radius:10px;padding:9px 0;background:var(--bg);color:var(--sub);
+  transition:all .15s;
+}
+.date-opt.on{background:var(--gold);color:#fff}
+.exp-pickers{display:flex;gap:6px;margin-top:8px}
+.exp-pickers select{
+  flex:1;border:1.5px solid var(--line);border-radius:10px;padding:8px 4px;
+  font-size:13px;color:var(--ink);background:var(--card);text-align:center;
+  -webkit-appearance:none;appearance:none;
+}
 
 /* ========== 轻提示 ========== */
 .toast{
@@ -549,7 +564,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       </div>
     </div>
     <div class="card">
-      <div class="card-title">🌟 奖励项目管理 <span class="tag">点 ✎ 改 / × 删</span></div>
+      <div class="card-title">🌟 奖励项目管理 <span class="tag">所有宝宝共用</span></div>
       <div id="setRewards"></div>
       <div class="add-form">
         <input type="text" name="iname" id="addRewardName" placeholder="新奖励项目名称" maxlength="20">
@@ -558,7 +573,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       </div>
     </div>
     <div class="card">
-      <div class="card-title">⚠️ 惩罚项目管理</div>
+      <div class="card-title">⚠️ 惩罚项目管理 <span class="tag">所有宝宝共用</span></div>
       <div id="setPunish"></div>
       <div class="add-form">
         <input type="text" name="iname" id="addPunishName" placeholder="新惩罚项目名称" maxlength="20">
@@ -567,7 +582,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       </div>
     </div>
     <div class="card">
-      <div class="card-title">🎁 兑换项目管理</div>
+      <div class="card-title">🎁 兑换项目管理 <span class="tag">所有宝宝共用</span></div>
       <div id="setExchange"></div>
       <div class="add-form">
         <input type="text" name="iname" id="addExName" placeholder="新兑换项目名称" maxlength="20">
@@ -611,9 +626,18 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 <div class="modal-mask" id="exportModal">
   <div class="modal">
     <h3>📤 选择导出范围</h3>
-    <div id="exportModalName" style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:14px"></div>
+    <div id="exportModalName" style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:6px"></div>
+    <div class="exp-section-title">① 选择时间范围</div>
+    <div class="date-opt-row">
+      <button class="date-opt on" data-d="all" onclick="setReportDate('all',this)">全部</button>
+      <button class="date-opt" data-d="y" onclick="setReportDate('y',this)">某年</button>
+      <button class="date-opt" data-d="m" onclick="setReportDate('m',this)">某月</button>
+      <button class="date-opt" data-d="d" onclick="setReportDate('d',this)">某天</button>
+    </div>
+    <div class="exp-pickers" id="expDatePickers"></div>
+    <div class="exp-section-title">② 选择导出对象</div>
     <button class="exp-opt" onclick="runExport('single')">👤 单人报告<br><small>只导出当前宝宝「<span id="expCurName"></span>」</small></button>
-    <button class="exp-opt family" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 · 兄弟姐妹互相鼓励</small></button>
+    <button class="exp-opt family" id="expFamilyBtn" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 · 兄弟姐妹互相鼓励</small></button>
     <div class="modal-btns"><button class="cancel" onclick="cancelExport()">取消</button></div>
   </div>
 </div>
@@ -669,18 +693,16 @@ const DEFAULT_EXCHANGE = [
   {id:204, name:'买任意礼物 50元以内', pts:250},
 ];
 
-/* ---------- 本地存储（多宝宝：每人独立的积分/记录/项目） ---------- */
+/* ---------- 本地存储（多宝宝：积分/记录各自独立，奖励/惩罚/兑换项目全家共用） ---------- */
 const KEY = 'kids-points-app-v2';
+const clone = a => JSON.parse(JSON.stringify(a));
 let uid = Date.now();
-let db = load();  // 全局数据对象：{cur:当前宝宝id, children:[{id,name,rewards,punish,exchange,records}]}
+let db = load();  // {cur, children:[{id,name,gender,records}], rewards, punish, exchange}
 
-// 新建一个宝宝（各带一套默认项目），gender: 'son'儿子 / 'daughter'女儿 / 'unknown'保密
+// 新建一个宝宝（只带积分记录，项目是全家共用的）
 function freshChild(name, gender){
   return {
     id: ++uid, name: name || '宝宝', gender: gender || 'unknown',
-    rewards:  JSON.parse(JSON.stringify(DEFAULT_REWARDS)),
-    punish:   JSON.parse(JSON.stringify(DEFAULT_PUNISH)),
-    exchange: JSON.parse(JSON.stringify(DEFAULT_EXCHANGE)),
     records: [],  // {id, kind:'reward'|'punish'|'exchange', name, pts(带符号), time}
   };
 }
@@ -712,32 +734,41 @@ function dailyQuote(){
 }
 // 导出时随机一句，增加新鲜感
 function randomQuote(){ return QUOTES[Math.floor(Math.random()*QUOTES.length)]; }
-// 兼容旧版单宝宝数据（v1）→ 迁移成第一个宝宝
+// 兼容旧版单宝宝数据（v1）→ 拆成 宝宝 + 全局项目
 function loadLegacy(){
   try{
     const d = JSON.parse(localStorage.getItem('kids-points-app-v1'));
     if(d && d.rewards){
-      const c = freshChild(d.childName || '宝宝');
-      c.rewards = d.rewards; c.punish = d.punish;
-      c.exchange = d.exchange; c.records = d.records || [];
-      return c;
+      const c = { id: ++uid, name: d.childName||'宝宝', gender:'unknown', records: d.records||[] };
+      return { child:c, rewards:d.rewards, punish:d.punish, exchange:d.exchange };
     }
   }catch(e){}
   return null;
+}
+// 把多个宝宝各自的项目合并成一份全局项目（按名称去重，重新编号）
+function mergeItems(children){
+  const uniq = arr => { const m=new Map(); arr.forEach(x=>{ if(!m.has(x.name)) m.set(x.name, {...x}); }); return [...m.values()]; };
+  const reId = a => a.map(x=>({...x, id:++uid}));
+  let r=[],p=[],e=[];
+  children.forEach(c=>{ (c.rewards||[]).forEach(x=>r.push(x)); (c.punish||[]).forEach(x=>p.push(x)); (c.exchange||[]).forEach(x=>e.push(x)); });
+  return { rewards:reId(uniq(r)), punish:reId(uniq(p)), exchange:reId(uniq(e)) };
 }
 function load(){
   try{
     const d = JSON.parse(localStorage.getItem(KEY));
     if(d && d.children && d.children.length){
-      d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; });  // 老数据补性别字段
+      d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; if(!c.records) c.records=[]; });
       if(!d.children.find(c=>c.id===d.cur)) d.cur = d.children[0].id;
-      return d;
+      if(d.rewards) return d;   // 已是「项目全局」新结构
+      // 旧结构：每个宝宝自带项目 → 合并成全局共用
+      const merged = mergeItems(d.children);
+      return { cur:d.cur, children:d.children, rewards:merged.rewards, punish:merged.punish, exchange:merged.exchange };
     }
   }catch(e){}
   const legacy = loadLegacy();
-  if(legacy) return { cur: legacy.id, children:[legacy] };
+  if(legacy) return { cur: legacy.child.id, children:[legacy.child], rewards:legacy.rewards, punish:legacy.punish, exchange:legacy.exchange };
   const first = freshChild('宝宝');
-  return { cur: first.id, children:[first] };
+  return { cur: first.id, children:[first], rewards:clone(DEFAULT_REWARDS), punish:clone(DEFAULT_PUNISH), exchange:clone(DEFAULT_EXCHANGE) };
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
 // 当前宝宝（后面所有积分/记录/项目都从这里取）
@@ -824,12 +855,12 @@ function addRecord(kind, name, pts){
 // 渲染奖励项目（按分类分组）
 function renderRewardGroups(){
   const box = $('#rewardGroups');
-  const cats = [...new Set(C().rewards.map(r=>r.cat))];
+  const cats = [...new Set(db.rewards.map(r=>r.cat))];
   box.innerHTML = cats.map(cat=>`
     <div class="item-group">
       <div class="group-head">${cat}</div>
       <div class="chip-wrap">
-        ${C().rewards.filter(r=>r.cat===cat).map(r=>`
+        ${db.rewards.filter(r=>r.cat===cat).map(r=>`
           <button class="chip" onclick="addRecord('reward','${r.name.replace(/'/g,"\\'")}',${r.pts})">
             ${r.name}<span class="pts">+${r.pts}</span>
           </button>`).join('')}
@@ -838,7 +869,7 @@ function renderRewardGroups(){
 }
 // 渲染惩罚项目
 function renderPunish(){
-  $('#punishWrap').innerHTML = C().punish.map(p=>`
+  $('#punishWrap').innerHTML = db.punish.map(p=>`
     <button class="chip minus" onclick="addRecord('punish','${p.name.replace(/'/g,"\\'")}',-${p.pts})">
       ${p.name}<span class="pts">-${p.pts}</span>
     </button>`).join('');
@@ -974,7 +1005,7 @@ function delRecord(id){
 function renderExchange(){
   const total = totalPts();
   // 按所需积分从小到大排序，方便找"够得着"的目标
-  const sorted = [...C().exchange].sort((a,b)=>a.pts-b.pts);
+  const sorted = [...db.exchange].sort((a,b)=>a.pts-b.pts);
   $('#exchangeList').innerHTML = sorted.map(e=>`
     <div class="exchange-item">
       <div class="gift">🎁</div>
@@ -1003,7 +1034,7 @@ function renderExchange(){
   }
 }
 function doExchange(id){
-  const e = C().exchange.find(x=>x.id===id);
+  const e = db.exchange.find(x=>x.id===id);
   if(!e) return;
   if(totalPts() < e.pts) return toast('积分还不够哦，继续加油！');
   if(!confirm(`确认用 ${e.pts} 分兑换「${e.name}」吗？`)) return;
@@ -1032,7 +1063,7 @@ function renderSettings(){
       <button class="mini-btn del" onclick="delChild(${k.id})">×</button>
     </div>`).join('');
   // 奖励
-  $('#setRewards').innerHTML = C().rewards.map(r=>`
+  $('#setRewards').innerHTML = db.rewards.map(r=>`
     <div class="setting-row">
       <div class="name">${r.name}</div>
       <div class="pts">+${r.pts}</div>
@@ -1040,7 +1071,7 @@ function renderSettings(){
       <button class="mini-btn del" onclick="delItem('reward',${r.id})">×</button>
     </div>`).join('');
   // 惩罚
-  $('#setPunish').innerHTML = C().punish.map(p=>`
+  $('#setPunish').innerHTML = db.punish.map(p=>`
     <div class="setting-row">
       <div class="name">${p.name}</div>
       <div class="pts minus">-${p.pts}</div>
@@ -1048,7 +1079,7 @@ function renderSettings(){
       <button class="mini-btn del" onclick="delItem('punish',${p.id})">×</button>
     </div>`).join('');
   // 兑换
-  $('#setExchange').innerHTML = C().exchange.map(e=>`
+  $('#setExchange').innerHTML = db.exchange.map(e=>`
     <div class="setting-row">
       <div class="name">${e.name}</div>
       <div class="pts cost">${e.pts}分</div>
@@ -1134,11 +1165,11 @@ function addItem(kind){
   if(!name)  return toast('请填写项目名称');
   if(!pts||pts<=0) return toast('请填写正确的分值');
   if(kind==='reward'){
-    C().rewards.push({id:++uid, cat:'⭐ 自定义', name, pts});
+    db.rewards.push({id:++uid, cat:'⭐ 自定义', name, pts});
   }else if(kind==='punish'){
-    C().punish.push({id:++uid, name, pts});
+    db.punish.push({id:++uid, name, pts});
   }else{
-    C().exchange.push({id:++uid, name, pts});
+    db.exchange.push({id:++uid, name, pts});
   }
   save(); renderAll();
   nameEl.value=''; ptsEl.value='';
@@ -1146,7 +1177,7 @@ function addItem(kind){
 }
 // 删除项目
 function delItem(kind, id){
-  const arr = kind==='reward'?C().rewards:kind==='punish'?C().punish:C().exchange;
+  const arr = kind==='reward'?db.rewards:kind==='punish'?db.punish:db.exchange;
   const item = arr.find(x=>x.id===id);
   if(!item) return;
   if(!confirm(`删除项目「${item.name}」吗？\n（已有的积分记录不受影响）`)) return;
@@ -1158,7 +1189,7 @@ function delItem(kind, id){
 // 编辑弹窗
 let editTarget = null;   // {kind, id}
 function openEdit(kind, id){
-  const arr = kind==='reward'?C().rewards:kind==='punish'?C().punish:C().exchange;
+  const arr = kind==='reward'?db.rewards:kind==='punish'?db.punish:db.exchange;
   const item = arr.find(x=>x.id===id);
   if(!item) return;
   editTarget = {kind, id};
@@ -1173,7 +1204,7 @@ function saveEdit(){
   const pts = parseInt($('#editPts').value);
   if(!name) return toast('名称不能为空');
   if(!pts||pts<=0) return toast('分值要大于0');
-  const arr = editTarget.kind==='reward'?C().rewards:editTarget.kind==='punish'?C().punish:C().exchange;
+  const arr = editTarget.kind==='reward'?db.rewards:editTarget.kind==='punish'?db.punish:db.exchange;
   const item = arr.find(x=>x.id===editTarget.id);
   if(item){ item.name=name; item.pts=pts; }
   save(); renderAll(); closeEdit();
@@ -1255,13 +1286,14 @@ function buildReport(){
 
   // —— 当前宝宝明细 ——
   const total = totalPts();
-  const sortedEx = [...C().exchange].sort((a,b)=>a.pts-b.pts);
-  const recent = C().records.slice(0,30);   // 最近30笔
-  const rows = recent.map(r=>`
+  const sortedEx = [...db.exchange].sort((a,b)=>a.pts-b.pts);
+  const scopeText = reportScopeText();
+  const recs = getReportRecords();   // 已按时间范围筛选 + 按时间倒序，最多30笔
+  const rows = recs.map(({r,child})=>`
     <tr>
       <td>${fmtTime(r.time)}</td>
       <td>${KIND_NAME[r.kind]}</td>
-      <td>${r.name}</td>
+      <td>${r.name}${multi?` · ${child}`:''}</td>
       <td style="font-weight:700;color:${r.pts>0?'#2fb380':'#f0655a'}">${r.pts>0?'+':''}${r.pts}</td>
     </tr>`).join('');
   const exRows = sortedEx.map(e=>{
@@ -1290,7 +1322,7 @@ function buildReport(){
   $('#report').innerHTML = `
     <div class="rp-head">
       <div class="t">${titleText}</div>
-      <div class="d">生成时间：${nowStr} · 好习惯每天存一点</div>
+      <div class="d">生成时间：${nowStr} · 范围：${scopeText} · 好习惯每天存一点</div>
     </div>
     ${balanceHTML}
     ${familyHTML}
@@ -1299,16 +1331,81 @@ function buildReport(){
       <tr><th>兑换项目</th><th>所需积分</th><th>状态</th></tr>
       ${exRows || '<tr><td colspan=3>暂无兑换项目</td></tr>'}
     </table>
-    <div class="sec">📋 最近记录 <small>（最多显示30笔）</small></div>
+    <div class="sec">📋 记录明细 · ${scopeText} <small>（最多显示30笔）</small></div>
     <table>
       <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
       ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
     </table>
     <div class="rp-quote">💌 ${quote}</div>`;
 }
+/* ---------- 导出时间范围筛选 ---------- */
+let reportDateFilter = {y:null, m:null, d:null};   // 导出报告的时间范围：null=不限
+function reportScopeText(){
+  const df = reportDateFilter;
+  if(df.d) return `${df.y}年${df.m}月${df.d}日`;
+  if(df.m) return `${df.y}年${df.m}月`;
+  if(df.y) return `${df.y}年`;
+  return '全部时间';
+}
+// 取出要导出的记录（已按日期范围筛选 + 按时间倒序，最多30笔）
+function getReportRecords(){
+  let list;
+  if(reportMode==='family'){
+    list = [];
+    db.children.forEach(k=> k.records.forEach(r=> list.push({r, child:k.name})) );
+  }else{
+    list = C().records.map(r=>({r, child:C().name}));
+  }
+  const df = reportDateFilter;
+  if(df.y||df.m||df.d){
+    list = list.filter(({r})=>{
+      const dt = new Date(r.time);
+      if(df.y && dt.getFullYear()!==df.y) return false;
+      if(df.m && dt.getMonth()+1!==df.m) return false;
+      if(df.d && dt.getDate()!==df.d) return false;
+      return true;
+    });
+  }
+  list.sort((a,b)=>b.r.time-a.r.time);
+  return list.slice(0,30);
+}
+// 导出弹窗：选择时间范围（全部 / 某年 / 某月 / 某天）
+function setReportDate(type, btn){
+  document.querySelectorAll('.date-opt').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const cur = reportDateFilter;
+  const base = {y:null, m:null, d:null};
+  if(type==='y' || type==='m' || type==='d') base.y = cur.y;
+  if(type==='m' || type==='d') base.m = cur.m;
+  reportDateFilter = base;
+  const pick = $('#expDatePickers');
+  if(type==='all'){ pick.innerHTML=''; return; }
+  // 年份选项：取所有宝宝记录里出现过的年份，并补上今年
+  const allYears = [...new Set(db.children.flatMap(k=>k.records.map(r=>new Date(r.time).getFullYear())))].sort((a,b)=>a-b);
+  if(!allYears.length) allYears.push(new Date().getFullYear());
+  const ySel = `<select id="expYear" onchange="onExpDateChange()"><option value="">选择年份</option>${allYears.map(y=>`<option value="${y}">${y}年</option>`).join('')}</select>`;
+  let html = ySel;
+  if(type==='m' || type==='d'){
+    const mSel = `<select id="expMonth" onchange="onExpDateChange()"><option value="">选择月份</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('')}</select>`;
+    html += mSel;
+  }
+  if(type==='d'){
+    const dSel = `<select id="expDay" onchange="onExpDateChange()"><option value="">选择日期</option>${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('')}</select>`;
+    html += dSel;
+  }
+  pick.innerHTML = html;
+  if(base.y && $('#expYear'))   $('#expYear').value   = base.y;
+  if(base.m && $('#expMonth'))  $('#expMonth').value  = base.m;
+}
+function onExpDateChange(){
+  const y = $('#expYear')  ? $('#expYear').value  : '';
+  const m = $('#expMonth') ? $('#expMonth').value : '';
+  const d = $('#expDay')   ? $('#expDay').value   : '';
+  reportDateFilter = {y:y?+y:null, m:m?+m:null, d:d?+d:null};
+}
 async function exportImage(){
   if(typeof html2canvas === 'undefined') return toast('截图组件没加载出来，请联网后重试');
-  const scope = reportMode==='family' ? '全家' : (C().name||'单人');   // 文件名标注范围
+  const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();   // 文件名标注对象+时间范围
   buildReport();
   toast('正在生成图片…');
   try{
@@ -1320,10 +1417,11 @@ async function exportImage(){
     toast('🖼 图片已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
+  reportDateFilter = {y:null, m:null, d:null};
 }
 async function exportPDF(){
   if(typeof html2canvas === 'undefined' || !window.jspdf) return toast('PDF组件没加载出来，请联网后重试');
-  const scope = reportMode==='family' ? '全家' : (C().name||'单人');
+  const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();
   buildReport();
   toast('正在生成PDF…');
   try{
@@ -1337,6 +1435,7 @@ async function exportPDF(){
     toast('📄 PDF已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
+  reportDateFilter = {y:null, m:null, d:null};
 }
 
 /* ---------- 导出范围选择 ---------- */
@@ -1344,9 +1443,14 @@ let reportMode = 'auto';     // 'auto' | 'single' | 'family'
 let pendingExport = null;    // 'image' | 'pdf'
 function askExport(type){
   pendingExport = type;
-  if(db.children.length <= 1){ runExport('single'); return; }  // 只有一个宝宝直接单人
+  reportDateFilter = {y:null, m:null, d:null};   // 每次打开重置时间范围为"全部"
   $('#exportModalName').textContent = '当前宝宝：' + C().name;
   $('#expCurName').textContent = C().name;
+  // 时间范围 UI 重置为"全部"
+  document.querySelectorAll('.date-opt').forEach(b=>b.classList.toggle('on', b.dataset.d==='all'));
+  $('#expDatePickers').innerHTML = '';
+  // 只有一个宝宝时隐藏"多人报告"
+  $('#expFamilyBtn').style.display = (db.children.length <= 1) ? 'none' : '';
   $('#exportModal').classList.add('show');
 }
 function closeExportModal(){ $('#exportModal').classList.remove('show'); }
