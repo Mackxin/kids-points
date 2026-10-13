@@ -217,6 +217,17 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   background:var(--card);color:var(--sub);border:1px solid var(--line);
 }
 .filter-row button.on{background:var(--gold);color:#fff;border-color:var(--gold);font-weight:700}
+/* 时间筛选（年/月/日） */
+.date-filter{display:flex;gap:8px;margin-bottom:12px}
+.date-filter select{
+  flex:1;border:1.5px solid var(--line);border-radius:10px;padding:8px 4px;
+  font-size:13px;color:var(--ink);background:var(--card);text-align:center;
+  -webkit-appearance:none;appearance:none;
+}
+.date-summary{
+  font-size:12px;color:var(--sub);text-align:center;margin:10px 0 4px;
+}
+.date-summary b{color:var(--ink)}
 .empty{text-align:center;color:var(--sub);font-size:13px;padding:34px 0}
 
 /* ========== 兑换页 ========== */
@@ -490,12 +501,18 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
     <!-- 记录明细 -->
     <div class="card">
       <div class="card-title">📋 记录明细 <span class="tag">点 × 可撤销该笔</span></div>
+      <div class="date-filter">
+        <select id="selYear" onchange="onDateChange()"><option value="">全部年份</option></select>
+        <select id="selMonth" onchange="onDateChange()"><option value="">全部月份</option></select>
+        <select id="selDay" onchange="onDateChange()"><option value="">全部日期</option></select>
+      </div>
       <div class="filter-row">
         <button class="on" data-f="all" onclick="setFilter('all',this)">全部</button>
         <button data-f="reward" onclick="setFilter('reward',this)">奖励</button>
         <button data-f="punish" onclick="setFilter('punish',this)">惩罚</button>
         <button data-f="exchange" onclick="setFilter('exchange',this)">兑换</button>
       </div>
+      <div class="date-summary" id="dateSummary"></div>
       <div id="recordList"></div>
     </div>
     </div>
@@ -829,10 +846,36 @@ function renderPunish(){
 
 /* ================= 明细页 ================= */
 let curFilter = 'all';
+let dateFilter = {y:null, m:null, d:null};   // 时间筛选：null=全部
 function setFilter(f, btn){
   curFilter = f;
   document.querySelectorAll('.filter-row button').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
+  renderRecords();
+}
+// 填充年/月/日下拉，并根据 dateFilter 还原选中项
+function populateDateFilters(){
+  const selY = $('#selYear'), selM = $('#selMonth'), selD = $('#selDay');
+  if(selY){
+    const years = [...new Set(C().records.map(r=>new Date(r.time).getFullYear()))];
+    const cur = new Date().getFullYear();
+    if(!years.includes(cur)) years.push(cur);
+    years.sort((a,b)=>a-b);
+    selY.innerHTML = '<option value="">全部年份</option>' + years.map(y=>`<option value="${y}">${y}年</option>`).join('');
+    selY.value = dateFilter.y || '';
+  }
+  if(selM){
+    selM.innerHTML = '<option value="">全部月份</option>' + Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
+    selM.value = dateFilter.m || '';
+  }
+  if(selD){
+    selD.innerHTML = '<option value="">全部日期</option>' + Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('');
+    selD.value = dateFilter.d || '';
+  }
+}
+function onDateChange(){
+  const y = $('#selYear').value, m = $('#selMonth').value, d = $('#selDay').value;
+  dateFilter = {y:y?+y:null, m:m?+m:null, d:d?+d:null};
   renderRecords();
 }
 const KIND_ICON = {reward:'🌟', punish:'⚠️', exchange:'🎁'};
@@ -869,12 +912,29 @@ function renderChart(){
     </div>`;
   }).join('');
 }
-// 记录列表（按天分组）
+// 记录列表（按天分组 + 年/月/日筛选）
 function renderRecords(){
-  const list = C().records.filter(r=>curFilter==='all'||r.kind===curFilter);
+  populateDateFilters();
+  let list = C().records.filter(r=>curFilter==='all'||r.kind===curFilter);
+  const df = dateFilter;
+  if(df.y || df.m || df.d){
+    list = list.filter(r=>{
+      const dt = new Date(r.time);
+      if(df.y && dt.getFullYear()!==df.y) return false;
+      if(df.m && dt.getMonth()+1!==df.m) return false;
+      if(df.d && dt.getDate()!==df.d) return false;
+      return true;
+    });
+  }
+  // 范围汇总
+  const plus  = list.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0);
+  const minus = list.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0);
+  $('#dateSummary').innerHTML = list.length
+    ? `该范围共 <b>${list.length}</b> 笔 · 合计 <span style="color:var(--plus)">+${plus}</span> <span style="color:var(--minus)">${minus}</span>`
+    : '';
   const box = $('#recordList');
   if(!list.length){
-    box.innerHTML = '<div class="empty">还没有记录，快去记分吧～ 🌈</div>';
+    box.innerHTML = '<div class="empty">这个时间段还没有记录～ 🌈</div>';
     return;
   }
   // 按日期分组
@@ -1041,7 +1101,7 @@ function addChildFromForm(){
 }
 function switchChild(id){
   if(db.cur === id) return;
-  db.cur = id; save(); renderAll();
+  db.cur = id; dateFilter = {y:null, m:null, d:null}; save(); renderAll();
   toast('已切换到「'+C().name+'」');
 }
 function renameChild(id){
