@@ -136,6 +136,27 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   border-radius:12px;padding:0 18px;font-size:14px;
 }
 .quick-row .go:active{opacity:.8}
+/* 序号徽标：奖励/惩罚项目带编号，方便按序号快速记分 */
+.code-badge{
+  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+  min-width:22px;height:22px;padding:0 6px;margin-right:7px;border-radius:7px;
+  background:var(--gold-bg);color:#b07500;font-size:12px;font-weight:800;
+}
+.chip .code{
+  font-style:normal;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+  min-width:18px;height:18px;padding:0 5px;border-radius:6px;
+  background:rgba(255,255,255,.75);color:#b07500;font-size:11px;font-weight:800;
+}
+.chip.minus .code{background:rgba(255,255,255,.6);color:var(--minus)}
+.quick-row input[name=code]{flex:1;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;font-size:16px;font-weight:700;text-align:center}
+.code-hint{flex:1;font-size:13px;color:var(--sub);align-self:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 小屏时提示文字放不下，换到下一行单独显示 */
+@media(max-width:639px){
+  .code-row{flex-wrap:wrap}
+  .code-row .code-hint{flex-basis:100%;order:9;white-space:normal}
+  .code-row input[name=code]{flex:1}
+  .code-row .go{flex-shrink:0}
+}
 
 /* 分类分组 + 项目按钮 */
 .item-group{margin-bottom:6px}
@@ -481,6 +502,16 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       </div>
     </div>
 
+    <!-- 序号快速记分：按积分表的序号直接记一笔 -->
+    <div class="card">
+      <div class="card-title">🔢 序号记分 <span class="tag">对着积分表输序号，回车记好</span></div>
+      <div class="quick-row code-row">
+        <input type="number" name="code" id="codeInput" placeholder="输序号，如：6" min="1">
+        <div class="code-hint" id="codeHint"></div>
+        <button class="go" onclick="quickAddByCode()">记一笔</button>
+      </div>
+    </div>
+
     <!-- 奖励 + 惩罚 两栏（桌面）/ 上下（移动） -->
     <div class="record-grid">
       <div class="card">
@@ -614,6 +645,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   <div class="modal">
     <h3>✎ 编辑项目</h3>
     <input type="text" id="editName" placeholder="项目名称" maxlength="20">
+    <input type="number" id="editCode" placeholder="序号（记分时输数字就能快速记）" min="1">
     <input type="number" id="editPts" placeholder="分值">
     <div class="modal-btns">
       <button class="cancel" onclick="closeEdit()">取消</button>
@@ -698,6 +730,22 @@ const KEY = 'kids-points-app-v2';
 const clone = a => JSON.parse(JSON.stringify(a));
 let uid = Date.now();
 let db = load();  // {cur, children:[{id,name,gender,records}], rewards, punish, exchange}
+ensureCodes(db);  // 老数据迁移：奖励/惩罚项目没有序号的自动补上
+
+// 序号：奖励+惩罚共用一套编号（不重复），记分时输序号即可快速记一笔
+function ensureCodes(d){
+  const used = new Set();
+  [...d.rewards, ...d.punish].forEach(x=>{ if(x.code) used.add(x.code); });
+  let next = 1;
+  const pick = x => { if(x.code) return; while(used.has(next)) next++; x.code = next; used.add(next); next++; };
+  d.rewards.forEach(pick);   // 奖励先编号 1,2,3…
+  d.punish.forEach(pick);    // 惩罚接着往下排
+}
+function nextCode(){
+  const used = new Set([...db.rewards, ...db.punish].map(x=>x.code).filter(Boolean));
+  let n = 1; while(used.has(n)) n++;
+  return n;
+}
 
 // 新建一个宝宝（只带积分记录，项目是全家共用的）
 function freshChild(name, gender){
@@ -862,7 +910,7 @@ function renderRewardGroups(){
       <div class="chip-wrap">
         ${db.rewards.filter(r=>r.cat===cat).map(r=>`
           <button class="chip" onclick="addRecord('reward','${r.name.replace(/'/g,"\\'")}',${r.pts})">
-            ${r.name}<span class="pts">+${r.pts}</span>
+            <i class="code">${r.code||''}</i>${r.name}<span class="pts">+${r.pts}</span>
           </button>`).join('')}
       </div>
     </div>`).join('');
@@ -871,9 +919,39 @@ function renderRewardGroups(){
 function renderPunish(){
   $('#punishWrap').innerHTML = db.punish.map(p=>`
     <button class="chip minus" onclick="addRecord('punish','${p.name.replace(/'/g,"\\'")}',-${p.pts})">
-      ${p.name}<span class="pts">-${p.pts}</span>
+      <i class="code">${p.code||''}</i>${p.name}<span class="pts">-${p.pts}</span>
     </button>`).join('');
 }
+
+/* ---------- 序号记分：对着积分表输序号，回车记一笔 ---------- */
+function findItemByCode(code){
+  let hit = db.rewards.find(x=>x.code===code);
+  if(hit) return {kind:'reward', item:hit};
+  hit = db.punish.find(x=>x.code===code);
+  if(hit) return {kind:'punish', item:hit};
+  return null;
+}
+// 输入序号时实时提示命中的项目，避免记错
+function renderCodeHint(){
+  const v = parseInt($('#codeInput').value);
+  const hint = $('#codeHint');
+  if(!v){ hint.textContent=''; return; }
+  const hit = findItemByCode(v);
+  if(!hit){ hint.textContent = '没有序号 '+v+' 的项目'; hint.style.color = 'var(--sub)'; return; }
+  hint.textContent = `✔ ${hit.item.name} ${hit.kind==='reward'?'+':'-'}${hit.item.pts}`;
+  hint.style.color = hit.kind==='reward' ? 'var(--plus)' : 'var(--minus)';
+}
+function quickAddByCode(){
+  const v = parseInt($('#codeInput').value);
+  if(!v) return toast('请输入项目序号');
+  const hit = findItemByCode(v);
+  if(!hit) return toast('没有序号 '+v+' 的项目，去设置页看看吧');
+  addRecord(hit.kind, hit.item.name, hit.kind==='reward'?hit.item.pts:-hit.item.pts);
+  $('#codeInput').value = '';
+  renderCodeHint();
+}
+$('#codeInput').addEventListener('input', renderCodeHint);
+$('#codeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') quickAddByCode(); });
 
 /* ================= 明细页 ================= */
 let curFilter = 'all';
@@ -1065,7 +1143,7 @@ function renderSettings(){
   // 奖励
   $('#setRewards').innerHTML = db.rewards.map(r=>`
     <div class="setting-row">
-      <div class="name">${r.name}</div>
+      <div class="name"><span class="code-badge">${r.code||''}</span>${r.name}</div>
       <div class="pts">+${r.pts}</div>
       <button class="mini-btn" onclick="openEdit('reward',${r.id})">✎</button>
       <button class="mini-btn del" onclick="delItem('reward',${r.id})">×</button>
@@ -1073,7 +1151,7 @@ function renderSettings(){
   // 惩罚
   $('#setPunish').innerHTML = db.punish.map(p=>`
     <div class="setting-row">
-      <div class="name">${p.name}</div>
+      <div class="name"><span class="code-badge">${p.code||''}</span>${p.name}</div>
       <div class="pts minus">-${p.pts}</div>
       <button class="mini-btn" onclick="openEdit('punish',${p.id})">✎</button>
       <button class="mini-btn del" onclick="delItem('punish',${p.id})">×</button>
@@ -1165,9 +1243,9 @@ function addItem(kind){
   if(!name)  return toast('请填写项目名称');
   if(!pts||pts<=0) return toast('请填写正确的分值');
   if(kind==='reward'){
-    db.rewards.push({id:++uid, cat:'⭐ 自定义', name, pts});
+    db.rewards.push({id:++uid, cat:'⭐ 自定义', name, pts, code:nextCode()});
   }else if(kind==='punish'){
-    db.punish.push({id:++uid, name, pts});
+    db.punish.push({id:++uid, name, pts, code:nextCode()});
   }else{
     db.exchange.push({id:++uid, name, pts});
   }
@@ -1195,6 +1273,10 @@ function openEdit(kind, id){
   editTarget = {kind, id};
   $('#editName').value = item.name;
   $('#editPts').value = item.pts;
+  // 兑换项目没有序号，隐藏序号输入框
+  const isEx = kind==='exchange';
+  $('#editCode').style.display = isEx ? 'none' : '';
+  $('#editCode').value = isEx ? '' : (item.code||'');
   $('#editModal').classList.add('show');
 }
 function closeEdit(){ $('#editModal').classList.remove('show'); }
@@ -1206,7 +1288,17 @@ function saveEdit(){
   if(!pts||pts<=0) return toast('分值要大于0');
   const arr = editTarget.kind==='reward'?db.rewards:editTarget.kind==='punish'?db.punish:db.exchange;
   const item = arr.find(x=>x.id===editTarget.id);
-  if(item){ item.name=name; item.pts=pts; }
+  if(item){
+    item.name=name; item.pts=pts;
+    // 序号校验：大于0且不能和别的奖励/惩罚项目重复
+    if(editTarget.kind!=='exchange'){
+      const code = parseInt($('#editCode').value);
+      if(!code || code<=0) return toast('序号要大于0');
+      const dup = [...db.rewards, ...db.punish].find(x=>x.code===code && x.id!==item.id);
+      if(dup) return toast(`序号 ${code} 已被「${dup.name}」占用`);
+      item.code = code;
+    }
+  }
   save(); renderAll(); closeEdit();
   toast('✅ 已保存');
 }
