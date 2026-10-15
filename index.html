@@ -412,6 +412,10 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   transition:all .15s;
 }
 .date-opt.on{background:var(--gold);color:#fff}
+/* 导出弹窗：今天/昨天/明天 快捷行 */
+.quick-day-row{display:flex;gap:6px;align-items:center;margin-top:8px}
+.quick-day-label{font-size:12px;color:var(--sub);flex-shrink:0}
+.quick-day-row .date-opt{flex:1}
 .exp-pickers{display:flex;gap:6px;margin-top:8px}
 .exp-pickers select{
   flex:1;border:1.5px solid var(--line);border-radius:10px;padding:8px 4px;
@@ -665,6 +669,12 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
       <button class="date-opt" data-d="y" onclick="setReportDate('y',this)">某年</button>
       <button class="date-opt" data-d="m" onclick="setReportDate('m',this)">某月</button>
       <button class="date-opt" data-d="d" onclick="setReportDate('d',this)">某天</button>
+    </div>
+    <div class="quick-day-row">
+      <span class="quick-day-label">快捷：</span>
+      <button class="date-opt day-quick" onclick="setQuickDay(0,this)">今天</button>
+      <button class="date-opt day-quick" onclick="setQuickDay(-1,this)">昨天</button>
+      <button class="date-opt day-quick" onclick="setQuickDay(1,this)">明天</button>
     </div>
     <div class="exp-pickers" id="expDatePickers"></div>
     <div class="exp-section-title">② 选择导出对象</div>
@@ -1432,9 +1442,30 @@ function buildReport(){
 }
 /* ---------- 导出时间范围筛选 ---------- */
 let reportDateFilter = {y:null, m:null, d:null};   // 导出报告的时间范围：null=不限
+// 年份下拉选项：取所有宝宝记录里出现过的年份，并补上指定年份（如今天/明天所在的年）
+function expYearOptions(extraYear){
+  let years = [...new Set(db.children.flatMap(k=>k.records.map(r=>new Date(r.time).getFullYear())))];
+  if(!years.length) years.push(new Date().getFullYear());
+  if(extraYear && !years.includes(extraYear)) years.push(extraYear);
+  years.sort((a,b)=>a-b);
+  return '<option value="">选择年份</option>' + years.map(y=>`<option value="${y}">${y}年</option>`).join('');
+}
+// 判断某年/月/日是不是 今天/昨天/明天（用于报告标题和文件名显示友好文字）
+function dayLabel(y, m, d){
+  const t = new Date(); t.setHours(0,0,0,0);
+  const key = off => { const x = new Date(t); x.setDate(x.getDate()+off); return `${x.getFullYear()}-${x.getMonth()+1}-${x.getDate()}`; };
+  const cur = `${y}-${m}-${d}`;
+  if(cur===key(0)) return '今天';
+  if(cur===key(-1)) return '昨天';
+  if(cur===key(1)) return '明天';
+  return null;
+}
 function reportScopeText(){
   const df = reportDateFilter;
-  if(df.d) return `${df.y}年${df.m}月${df.d}日`;
+  if(df.d){
+    const lbl = dayLabel(df.y, df.m, df.d);
+    return (lbl?lbl+' ':'') + `${df.y}年${df.m}月${df.d}日`;
+  }
   if(df.m) return `${df.y}年${df.m}月`;
   if(df.y) return `${df.y}年`;
   return '全部时间';
@@ -1465,6 +1496,7 @@ function getReportRecords(){
 function setReportDate(type, btn){
   document.querySelectorAll('.date-opt').forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
+  document.querySelectorAll('.day-quick').forEach(b=>b.classList.remove('on'));  // 切走快捷按钮
   const cur = reportDateFilter;
   const base = {y:null, m:null, d:null};
   if(type==='y' || type==='m' || type==='d') base.y = cur.y;
@@ -1472,10 +1504,7 @@ function setReportDate(type, btn){
   reportDateFilter = base;
   const pick = $('#expDatePickers');
   if(type==='all'){ pick.innerHTML=''; return; }
-  // 年份选项：取所有宝宝记录里出现过的年份，并补上今年
-  const allYears = [...new Set(db.children.flatMap(k=>k.records.map(r=>new Date(r.time).getFullYear())))].sort((a,b)=>a-b);
-  if(!allYears.length) allYears.push(new Date().getFullYear());
-  const ySel = `<select id="expYear" onchange="onExpDateChange()"><option value="">选择年份</option>${allYears.map(y=>`<option value="${y}">${y}年</option>`).join('')}</select>`;
+  const ySel = `<select id="expYear" onchange="onExpDateChange()">${expYearOptions(base.y)}</select>`;
   let html = ySel;
   if(type==='m' || type==='d'){
     const mSel = `<select id="expMonth" onchange="onExpDateChange()"><option value="">选择月份</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('')}</select>`;
@@ -1489,7 +1518,24 @@ function setReportDate(type, btn){
   if(base.y && $('#expYear'))   $('#expYear').value   = base.y;
   if(base.m && $('#expMonth'))  $('#expMonth').value  = base.m;
 }
+// 快捷按钮：今天 / 昨天 / 明天（offset = 0 / -1 / +1）
+function setQuickDay(offset, btn){
+  document.querySelectorAll('.date-opt').forEach(b=>b.classList.remove('on'));
+  document.querySelector('.date-opt[data-d="d"]').classList.add('on');  // 切到"某天"模式
+  document.querySelectorAll('.day-quick').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const dt = new Date(); dt.setDate(dt.getDate()+offset);
+  const y = dt.getFullYear(), m = dt.getMonth()+1, d = dt.getDate();
+  reportDateFilter = {y, m, d};
+  // 把年/月/日下拉预填成这一天，保持 UI 一致
+  const pick = $('#expDatePickers');
+  pick.innerHTML = `<select id="expYear" onchange="onExpDateChange()">${expYearOptions(y)}</select>`
+    + `<select id="expMonth" onchange="onExpDateChange()"><option value="">选择月份</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('')}</select>`
+    + `<select id="expDay" onchange="onExpDateChange()"><option value="">选择日期</option>${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('')}</select>`;
+  $('#expYear').value = y; $('#expMonth').value = m; $('#expDay').value = d;
+}
 function onExpDateChange(){
+  document.querySelectorAll('.day-quick').forEach(b=>b.classList.remove('on'));  // 手动改了下拉就不算快捷选中
   const y = $('#expYear')  ? $('#expYear').value  : '';
   const m = $('#expMonth') ? $('#expMonth').value : '';
   const d = $('#expDay')   ? $('#expDay').value   : '';
@@ -1540,6 +1586,7 @@ function askExport(type){
   $('#expCurName').textContent = C().name;
   // 时间范围 UI 重置为"全部"
   document.querySelectorAll('.date-opt').forEach(b=>b.classList.toggle('on', b.dataset.d==='all'));
+  document.querySelectorAll('.day-quick').forEach(b=>b.classList.remove('on'));
   $('#expDatePickers').innerHTML = '';
   // 只有一个宝宝时隐藏"多人报告"
   $('#expFamilyBtn').style.display = (db.children.length <= 1) ? 'none' : '';
