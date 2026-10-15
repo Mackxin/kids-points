@@ -1550,7 +1550,9 @@ async function exportImage(){
     const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `积分报告-${scope}-${dayKey(Date.now())}.png`;
+    // 文件名去重：范围已含具体日期（某天/今天/昨天/明天）就不再拼导出日期
+    const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
+    a.download = `积分报告-${scope}${dayTag}.png`;
     a.click();
     toast('🖼 图片已导出');
   }catch(e){ toast('生成失败，请重试'); }
@@ -1569,7 +1571,8 @@ async function exportPDF(){
     // 按A4宽度等比缩放放置
     const pw = 210, ph = canvas.height * pw / canvas.width;
     pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
-    pdf.save(`积分报告-${scope}-${dayKey(Date.now())}.pdf`);
+    const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
+    pdf.save(`积分报告-${scope}${dayTag}.pdf`);
     toast('📄 PDF已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
