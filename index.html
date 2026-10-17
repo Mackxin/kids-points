@@ -377,10 +377,17 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
   #exchangeList{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   #exchangeList .exchange-item{margin-bottom:0}
 }
-/* 桌面端：设置页双列 */
+/* 桌面端：设置页重排（原两栏左短右长、数据管理卡孤零零挂左下）
+   第1行：宝宝管理 | 数据管理；第2行：奖励全宽（列表内部双列）；第3行：惩罚 | 兑换 */
 @media(min-width:900px){
   .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
   .settings-grid .card{margin-bottom:0}
+  .settings-grid .card:nth-child(2){order:3;grid-column:1/-1}   /* 奖励：整行 */
+  .settings-grid .card:nth-child(3){order:4}                   /* 惩罚 */
+  .settings-grid .card:nth-child(4){order:5}                   /* 兑换 */
+  .settings-grid .card:nth-child(5){order:2}                   /* 数据管理：与宝宝管理并排 */
+  /* 奖励/惩罚列表内部双列，奖励卡全宽后一行两个项目 */
+  #setRewards,#setPunish{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
 }
 
 /* ========== 弹窗（编辑项目用） ========== */
