@@ -114,20 +114,9 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 .tab-page{display:none}
 .tab-page.active{display:block;animation:fadein .25s}
 @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-/* 左右滑动切页：旧页滑出+新页滑入的双页平滑过渡（.pages 提供定位上下文，旧页 absolute 不占位避免布局跳动） */
-@keyframes enterFromRight{from{opacity:0;transform:translateX(26%)}to{opacity:1;transform:translateX(0)}}
-@keyframes enterFromLeft{from{opacity:0;transform:translateX(-26%)}to{opacity:1;transform:translateX(0)}}
-@keyframes leaveToLeft{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(-26%)}}
-@keyframes leaveToRight{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(26%)}}
-.tab-page.enter-from-r,.tab-page.enter-from-l{position:relative;z-index:2}
-.tab-page.enter-from-r{animation:enterFromRight .24s cubic-bezier(.2,.7,.3,1)}
-.tab-page.enter-from-l{animation:enterFromLeft .24s cubic-bezier(.2,.7,.3,1)}
-.tab-page.leave-to-l,.tab-page.leave-to-r{position:absolute;inset:0;z-index:1;pointer-events:none}
-.tab-page.leave-to-l{animation:leaveToLeft .24s cubic-bezier(.4,0,.6,1)}
-.tab-page.leave-to-r{animation:leaveToRight .24s cubic-bezier(.4,0,.6,1)}
-@media (prefers-reduced-motion: reduce){
-  .tab-page.enter-from-r,.tab-page.enter-from-l,.tab-page.leave-to-l,.tab-page.leave-to-r{animation:none}
-}
+/* 滑动切页：跟手拖动中的「候场页」绝对定位铺满 .pages、不占布局；
+   注意 #tab-record.active{display:grid} 特异性更高，候场的记分页被激活时仍是两栏不跳变 */
+.tab-page.dragging{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;display:block}
 
 /* ========== 卡片通用 ========== */
 .card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:14px}
@@ -916,65 +905,137 @@ function renderBalance(){
 }
 
 /* ---------- 页签切换 ---------- */
-const SWITCH_MS=240;   // 与 CSS 过渡时长保持一致
-let switchGen=0;       // 过渡代际：快速连滑时丢弃过期的清理定时器
-function switchTab(name, btn, dir){
-  const gen=++switchGen;
-  // 先结束上一场没做完的过渡（快速连滑时可能还没结束）
-  document.querySelectorAll('.tab-page.leave-to-l,.tab-page.leave-to-r').forEach(p=>p.classList.remove('active','leave-to-l','leave-to-r'));
-  const old=document.querySelector('.tab-page.active:not(.leave-to-l):not(.leave-to-r)');
-  if(old) old.classList.remove('enter-from-r','enter-from-l');
+function switchTab(name, btn){
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+  $('#tab-'+name).classList.add('active');
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  const page=$('#tab-'+name);
-  if(dir && old && old!==page){
-    // 手势切页：旧页原地滑出（absolute 不占位，新页直接入流，无布局跳动），新页从对应方向滑入
-    old.classList.add(dir>0?'leave-to-l':'leave-to-r');
-    page.classList.add('active', dir>0?'enter-from-r':'enter-from-l');
-    setTimeout(()=>{
-      if(gen!==switchGen) return;   // 已有更新的过渡接管，这份过期清理作废
-      old.classList.remove('active','leave-to-l','leave-to-r');
-      page.classList.remove('enter-from-r','enter-from-l');
-    }, SWITCH_MS);
-  }else{
-    // 点 tab 按钮：直接切换 + 淡入
-    document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
-    page.classList.add('active');
-  }
   window.scrollTo(0,0);
 }
 
-/* ---------- 左右滑动切页（触屏手势：记分⇄明细⇄兑换⇄设置） ---------- */
+/* ---------- 左右滑动切页（跟手滑动 + 松手吸附，原生翻页手感） ---------- */
 (function(){
   const TABS=['record','history','exchange','settings'];
-  let sx=0,sy=0,tracking=false,decided=false,horiz=false;
+  const pages=TABS.map(t=>document.getElementById('tab-'+t));
+  const DAMP=0.35;    // 到头（第一页右滑/最后一页左滑）时的橡皮筋阻尼
+  const SNAP=0.28;    // 拖动超过 28% 页宽即翻页
+  const FLICK=0.35;   // 甩动速度阈值 px/ms（划得短但甩得快也翻页）
+  const SNAP_MS=240;  // 松手吸附动画时长
+  let gen=0;          // 手势代际：新手势开始时作废上一次没收尾的定时器
+  let lastNd=1;
+  let sx=0,sy=0,lastX=0,lastT=0,v=0;
+  let tracking=false,decided=false,horiz=false;
+  let cur=null,next=null,W=0;
+  const curPage=()=>document.querySelector('.tab-page.active.dragging')      // 吸附进行中：候场页即将成为当前页
+                 ||document.querySelector('.tab-page.active:not(.dragging)')
+                 ||pages[0];
+  const resetPage=p=>{ if(!p)return; p.classList.remove('dragging'); p.style.transition=''; p.style.transform=''; p.style.willChange=''; };
   document.addEventListener('touchstart',e=>{
     if(e.touches.length!==1) return;
-    if(document.querySelector('.modal-mask.show')) return;            // 弹窗打开时不切页
+    if(document.querySelector('.modal-mask.show')) return;                 // 弹窗打开时不切页
     const el=e.target;
-    if(el.closest('input,select,textarea,.modal-mask')) return;       // 原生控件/弹窗不抢
+    if(el.closest('input,select,textarea,.modal-mask')) return;            // 原生控件/弹窗不抢
     const bar=el.closest('.kids-bar');
-    if(bar && bar.scrollWidth>bar.clientWidth+4) return;              // 宝宝条自身可横滑时不切页
-    sx=e.touches[0].clientX; sy=e.touches[0].clientY;
+    if(bar && bar.scrollWidth>bar.clientWidth+4) return;                   // 宝宝条自身可横滑时不切页
+    gen++;
+    sx=e.touches[0].clientX; sy=e.touches[0].clientY; lastX=sx; lastT=Date.now(); v=0;
     tracking=true; decided=false; horiz=false;
   },{passive:true});
   document.addEventListener('touchmove',e=>{
-    if(!tracking||decided||e.touches.length!==1) return;
-    const dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
-    if(Math.abs(dx)>10 && Math.abs(dx)>Math.abs(dy)*1.2){horiz=true;decided=true;}   // 认定横向滑动
-    else if(Math.abs(dy)>10){horiz=false;decided=true;}                              // 认定纵向滚动
-  },{passive:true});
+    if(!tracking) return;
+    if(e.touches.length!==1){ tracking=false; cancelDrag(); decided=false; horiz=false; return; }
+    const x=e.touches[0].clientX, y=e.touches[0].clientY;
+    const mx=x-sx, my=y-sy;
+    if(!decided){
+      if(Math.abs(mx)>8 && Math.abs(mx)>Math.abs(my)*1.2){ decided=true; horiz=true; beginDrag(); }
+      else if(Math.abs(my)>8){ decided=true; horiz=false; return; }         // 认定纵向滚动，放手势
+      else return;
+    }
+    if(!horiz) return;
+    e.preventDefault();                                                    // 认定横滑后禁止页面滚动，手势不被打断
+    const now=Date.now();
+    if(now>lastT) v=(x-lastX)/(now-lastT);
+    lastX=x; lastT=now;
+    moveDrag(mx);
+  },{passive:false});
   document.addEventListener('touchend',e=>{
     if(!tracking) return; tracking=false;
-    if(!horiz) return;
-    const dx=e.changedTouches[0].clientX-sx;
-    if(Math.abs(dx)<60) return;                                        // 滑动距离不够不切
-    const cur=TABS.indexOf((document.querySelector('.tab-page.active:not(.leave-to-l):not(.leave-to-r)')||{id:'tab-record'}).id.replace('tab-',''));
-    const next=cur+(dx<0?1:-1);                                        // 左滑→下一页，右滑→上一页
-    if(next<0||next>=TABS.length) return;                              // 到头不绕回
-    const name=TABS[next];
-    switchTab(name, document.querySelector('nav button[data-tab="'+name+'"]'), dx<0?1:-1);
+    if(horiz) endDrag(e.changedTouches[0].clientX-sx);
+    decided=false; horiz=false;
   },{passive:true});
+  document.addEventListener('touchcancel',()=>{ if(tracking){ tracking=false; cancelDrag(); decided=false; horiz=false; } },{passive:true});
+
+  function beginDrag(){
+    // 收尾上一场没做完的吸附（240ms 内又开了新手势）：只有新旧页同时存在才是吸附进行中，
+    // 否则会把当前页的 .active 误删导致页面消失、宽度回退成视口宽
+    const n=document.querySelector('.tab-page.active.dragging');
+    const c=document.querySelector('.tab-page.active:not(.dragging)');
+    if(n && c){
+      c.classList.remove('active'); resetPage(c);
+      resetPage(n);
+      const keep=pages.indexOf(n);
+      document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TABS[keep]));
+    }
+    cur=curPage();
+    W=cur.offsetWidth||innerWidth;
+    cur.style.willChange='transform';
+  }
+  function moveDrag(mx){
+    const i=pages.indexOf(cur);
+    const nd=mx<0?1:-1; lastNd=nd;
+    const t=i+nd;
+    const edge=(t<0||t>=TABS.length);
+    const eff=edge?mx*DAMP:mx;                       // 到头只给 35% 位移（橡皮筋感）
+    cur.style.transition='none';
+    cur.style.transform='translateX('+eff+'px)';
+    if(edge){ if(next){ resetPage(next); next=null; } return; }
+    if(next!==pages[t]){
+      resetPage(next);
+      next=pages[t];
+      next.classList.add('dragging');                // 绝对定位铺满 .pages，不占布局
+      next.style.willChange='transform';
+      next.style.transition='none';
+    }
+    next.style.transform='translateX('+(nd*W+eff)+'px)';   // 候场页紧贴当前页外侧，跟手移动
+  }
+  function endDrag(mx){
+    const myGen=gen;
+    const i=pages.indexOf(cur);
+    const nd=mx<0?1:-1;
+    const t=i+nd;
+    const edge=(t<0||t>=TABS.length);
+    const pass=!edge && next && (Math.abs(mx)>W*SNAP || Math.abs(v)>FLICK);
+    const c=cur,n=next; cur=null; next=null;
+    if(pass){
+      const E='cubic-bezier(.2,.7,.3,1)';
+      n.classList.add('active');                     // 立即接管：record 页靠 #tab-record.active 保持 grid 两栏不跳变
+      c.style.transition='transform '+SNAP_MS+'ms '+E;
+      n.style.transition='transform '+SNAP_MS+'ms '+E;
+      c.style.transform='translateX('+(nd*W)+'px)';  // 旧页滑出，新页归位
+      n.style.transform='translateX(0px)';
+      setTimeout(()=>{
+        if(myGen!==gen) return;                       // 已被新手势接管，过期收尾作废
+        c.classList.remove('active');
+        resetPage(c); resetPage(n);
+        document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TABS[t]));
+        window.scrollTo(0,0);
+      },SNAP_MS);
+    }else{
+      const E='cubic-bezier(.2,.9,.3,1)';             // 没划到位：弹回
+      c.style.transition='transform 260ms '+E;
+      c.style.transform='translateX(0px)';
+      if(n){ n.style.transition='transform 260ms '+E; n.style.transform='translateX('+(nd*W)+'px)'; }
+      setTimeout(()=>{ if(myGen!==gen) return; resetPage(c); resetPage(n); },280);
+    }
+  }
+  function cancelDrag(){
+    const c=cur,n=next; cur=null; next=null;
+    if(!c) return;
+    c.style.transition='transform 200ms ease';
+    c.style.transform='translateX(0px)';
+    if(n){ n.style.transition='transform 200ms ease'; n.style.transform='translateX('+(lastNd*W)+'px)'; }
+    setTimeout(()=>{ resetPage(c); resetPage(n); },220);
+  }
 })();
 
 /* ================= 记分页 ================= */
