@@ -113,10 +113,17 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 }
 .tab-page{display:none}
 .tab-page.active{display:block;animation:fadein .25s}
-@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* 切页淡入：只动透明度——绝不能带 transform，否则运行中的动画会覆盖滑动拖动的内联 transform（打开页面 250ms 内拖不动） */
+@keyframes fadein{from{opacity:0}to{opacity:1}}
 /* 滑动切页：跟手拖动中的「候场页」绝对定位铺满 .pages、不占布局；
    注意 #tab-record.active{display:grid} 特异性更高，候场的记分页被激活时仍是两栏不跳变 */
 .tab-page.dragging{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;display:block}
+/* 横向手势：竖向滚动归浏览器（pan-y），横向拖动交给 JS 跟手切页；鼠标拖拽同样生效 */
+body{touch-action:pan-y}
+.kids-bar{touch-action:auto}          /* 宝宝条恢复默认，保留原生横向滚动 */
+input,select,textarea{touch-action:auto}
+/* 拖动中禁止选中文字 + 抓取手型 */
+html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 
 /* ========== 卡片通用 ========== */
 .card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:14px}
@@ -913,7 +920,7 @@ function switchTab(name, btn){
   window.scrollTo(0,0);
 }
 
-/* ---------- 左右滑动切页（跟手滑动 + 松手吸附，原生翻页手感） ---------- */
+/* ---------- 左右滑动切页（跟手滑动 + 松手吸附；Pointer Events 统一支持触屏和鼠标拖拽） ---------- */
 (function(){
   const TABS=['record','history','exchange','settings'];
   const pages=TABS.map(t=>document.getElementById('tab-'+t));
@@ -926,44 +933,60 @@ function switchTab(name, btn){
   let sx=0,sy=0,lastX=0,lastT=0,v=0;
   let tracking=false,decided=false,horiz=false;
   let cur=null,next=null,W=0;
+  let suppressClick=false;   // 拖动结束后抑制误点击
   const curPage=()=>document.querySelector('.tab-page.active.dragging')      // 吸附进行中：候场页即将成为当前页
                  ||document.querySelector('.tab-page.active:not(.dragging)')
                  ||pages[0];
   const resetPage=p=>{ if(!p)return; p.classList.remove('dragging'); p.style.transition=''; p.style.transform=''; p.style.willChange=''; };
-  document.addEventListener('touchstart',e=>{
-    if(e.touches.length!==1) return;
-    if(document.querySelector('.modal-mask.show')) return;                 // 弹窗打开时不切页
-    const el=e.target;
-    if(el.closest('input,select,textarea,.modal-mask')) return;            // 原生控件/弹窗不抢
+  const skipTarget=el=>{
+    if(document.querySelector('.modal-mask.show')) return true;            // 弹窗打开时不切页
+    if(el.closest('input,select,textarea,.modal-mask')) return true;       // 原生控件/弹窗不抢
     const bar=el.closest('.kids-bar');
-    if(bar && bar.scrollWidth>bar.clientWidth+4) return;                   // 宝宝条自身可横滑时不切页
+    if(bar && bar.scrollWidth>bar.clientWidth+4) return true;              // 宝宝条自身可横滑时不切页
+    return false;
+  };
+  document.addEventListener('pointerdown',e=>{
+    if(!e.isPrimary) return;
+    if(e.pointerType==='mouse' && e.button!==0) return;                    // 鼠标只认左键
+    suppressClick=false;
+    if(skipTarget(e.target)) return;
     gen++;
-    sx=e.touches[0].clientX; sy=e.touches[0].clientY; lastX=sx; lastT=Date.now(); v=0;
+    sx=e.clientX; sy=e.clientY; lastX=sx; lastT=Date.now(); v=0;
     tracking=true; decided=false; horiz=false;
-  },{passive:true});
-  document.addEventListener('touchmove',e=>{
-    if(!tracking) return;
-    if(e.touches.length!==1){ tracking=false; cancelDrag(); decided=false; horiz=false; return; }
-    const x=e.touches[0].clientX, y=e.touches[0].clientY;
-    const mx=x-sx, my=y-sy;
+  });
+  document.addEventListener('pointermove',e=>{
+    if(!tracking || !e.isPrimary) return;
+    const mx=e.clientX-sx, my=e.clientY-sy;
     if(!decided){
       if(Math.abs(mx)>8 && Math.abs(mx)>Math.abs(my)*1.2){ decided=true; horiz=true; beginDrag(); }
-      else if(Math.abs(my)>8){ decided=true; horiz=false; return; }         // 认定纵向滚动，放手势
+      else if(Math.abs(my)>8){ decided=true; horiz=false; return; }        // 认定纵向滚动，交还浏览器
       else return;
     }
     if(!horiz) return;
-    e.preventDefault();                                                    // 认定横滑后禁止页面滚动，手势不被打断
+    suppressClick=true;
+    document.documentElement.classList.add('dragging-x');                  // 拖动中禁选中文字+抓取手型
     const now=Date.now();
-    if(now>lastT) v=(x-lastX)/(now-lastT);
-    lastX=x; lastT=now;
+    if(now>lastT) v=(e.clientX-lastX)/(now-lastT);
+    lastX=e.clientX; lastT=now;
     moveDrag(mx);
-  },{passive:false});
-  document.addEventListener('touchend',e=>{
+  });
+  const finishDrag=e=>{
     if(!tracking) return; tracking=false;
-    if(horiz) endDrag(e.changedTouches[0].clientX-sx);
+    if(horiz) endDrag(e.clientX-sx);
+    document.documentElement.classList.remove('dragging-x');
     decided=false; horiz=false;
-  },{passive:true});
-  document.addEventListener('touchcancel',()=>{ if(tracking){ tracking=false; cancelDrag(); decided=false; horiz=false; } },{passive:true});
+  };
+  const abortDrag=()=>{
+    if(!tracking) return; tracking=false;
+    cancelDrag();
+    document.documentElement.classList.remove('dragging-x');
+    decided=false; horiz=false;
+  };
+  document.addEventListener('pointerup',finishDrag);
+  document.addEventListener('pointercancel',abortDrag);
+  window.addEventListener('blur',abortDrag);                              // 拖拽中切窗口/程序，安全收尾
+  // 鼠标拖完松手会触发 click，吞掉这一个防止误记分/误点按钮
+  document.addEventListener('click',e=>{ if(suppressClick){ e.preventDefault(); e.stopPropagation(); suppressClick=false; } },true);
 
   function beginDrag(){
     // 收尾上一场没做完的吸附（240ms 内又开了新手势）：只有新旧页同时存在才是吸附进行中，
@@ -973,8 +996,7 @@ function switchTab(name, btn){
     if(n && c){
       c.classList.remove('active'); resetPage(c);
       resetPage(n);
-      const keep=pages.indexOf(n);
-      document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TABS[keep]));
+      document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TABS[pages.indexOf(n)]));
     }
     cur=curPage();
     W=cur.offsetWidth||innerWidth;
@@ -996,7 +1018,7 @@ function switchTab(name, btn){
       next.style.willChange='transform';
       next.style.transition='none';
     }
-    next.style.transform='translateX('+(nd*W+eff)+'px)';   // 候场页紧贴当前页外侧，跟手移动
+    next.style.transform='translateX('+(nd*W+eff)+'px)';   // 候场页紧贴当前页外侧，跟手探入
   }
   function endDrag(mx){
     const myGen=gen;
