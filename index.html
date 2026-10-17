@@ -12,20 +12,21 @@
 <style>
 /* ========== 基础变量：清新简约配色 ========== */
 :root{
-  --bg:#f5f7fa;          /* 页面底色 */
+  --bg:#f3f4f6;          /* 页面底色 */
   --card:#ffffff;        /* 卡片白 */
-  --ink:#2f3542;         /* 主文字 */
-  --sub:#8a94a6;         /* 次要文字 */
-  --plus:#2fb380;        /* 加分绿 */
-  --plus-bg:#e8f8f1;
-  --minus:#f0655a;       /* 扣分红 */
-  --minus-bg:#fdeeed;
-  --gold:#f5a623;        /* 积分金 */
-  --gold-bg:#fff6e5;
-  --purple:#7c6cf0;      /* 兑换紫 */
-  --purple-bg:#f0eeff;
-  --line:#eef0f4;
-  --radius:16px;
+  --ink:#2b2f36;         /* 主文字 */
+  --sub:#9aa3b2;         /* 次要文字 */
+  --accent:#3b6fe0;      /* 单一主色（蓝）*/
+  --gold:#3b6fe0;        /* 兼容旧引用 → 主色 */
+  --gold-bg:#eef2fc;
+  --plus:#2e9e6b;        /* 加分绿（仅作语义标识）*/
+  --plus-bg:#eaf6f0;
+  --minus:#e0594f;       /* 扣分红（仅作语义标识）*/
+  --minus-bg:#fbecea;
+  --purple:#3b6fe0;      /* 兼容旧引用 → 主色 */
+  --purple-bg:#eef2fc;
+  --line:#ebeef3;
+  --radius:14px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{
@@ -38,20 +39,19 @@ input,select{font-family:inherit;outline:none}
 
 /* ========== 顶部区域 ========== */
 .header{
-  background:linear-gradient(135deg,#ffb347 0%,#ff8a5c 55%,#f0655a 100%);
-  padding:22px 18px 64px;color:#fff;
-  border-radius:0 0 28px 28px;
+  background:var(--card);color:var(--ink);
+  padding:20px 18px 34px;border-bottom:1px solid var(--line);
 }
 .header-top{display:flex;justify-content:space-between;align-items:flex-start}
-.header h1{font-size:19px;font-weight:700;letter-spacing:1px}
-.header .subtitle{font-size:12px;opacity:.85;margin-top:3px}
+.header h1{font-size:19px;font-weight:800;letter-spacing:.5px}
+.header .subtitle{font-size:12px;color:var(--sub);margin-top:3px}
 .export-btns{display:flex;gap:8px}
 .export-btns button{
-  background:rgba(255,255,255,.22);color:#fff;font-size:12px;
+  background:var(--bg);color:var(--ink);font-size:12px;
   padding:7px 12px;border-radius:20px;display:flex;align-items:center;gap:4px;
-  transition:background .2s;white-space:nowrap;flex-shrink:0;
+  transition:background .2s;white-space:nowrap;flex-shrink:0;border:1px solid var(--line);
 }
-.export-btns button:active{background:rgba(255,255,255,.4)}
+.export-btns button:active{background:var(--line)}
 /* 小屏：顶栏收紧防换行 */
 @media(max-width:480px){
   .header h1{font-size:16px}
@@ -60,30 +60,35 @@ input,select{font-family:inherit;outline:none}
 
 /* 积分余额卡：压在头部渐变和内容之间 */
 .balance-card{
-  margin:-48px 14px 0;background:var(--card);border-radius:var(--radius);
-  padding:18px;box-shadow:0 8px 24px rgba(240,101,90,.12);
+  margin:-34px 14px 0;background:var(--card);border-radius:var(--radius);
+  padding:18px;box-shadow:0 8px 24px rgba(30,40,60,.07);
   display:flex;justify-content:space-between;align-items:center;
 }
 .balance-main .label{font-size:12px;color:var(--sub)}
-.balance-main .num{font-size:38px;font-weight:800;color:var(--gold);line-height:1.15}
-.balance-main .num small{font-size:15px;font-weight:600;color:var(--gold)}
+.balance-main .num{font-size:38px;font-weight:800;color:var(--ink);line-height:1.15}
+.balance-main .num small{font-size:15px;font-weight:600;color:var(--sub)}
 .balance-side{text-align:right;font-size:12px;color:var(--sub);line-height:1.9}
 .balance-side b{color:var(--plus);font-size:15px}
 .balance-side b.minus{color:var(--minus)}
 
-/* ========== 底部导航 ========== */
+/* ========== 底部导航：居中浮起窄药丸条 ========== */
 nav{
-  position:fixed;bottom:0;left:0;right:0;z-index:50;
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:50;
+  width:auto;max-width:calc(100% - 32px);
   background:var(--card);display:flex;
-  border-top:1px solid var(--line);
-  padding-bottom:env(safe-area-inset-bottom);
+  border:1px solid var(--line);
+  border-radius:20px;
+  box-shadow:0 8px 24px rgba(30,40,60,.13);
+  padding:6px;
+  padding-bottom:calc(6px + env(safe-area-inset-bottom));
 }
 nav button{
-  flex:1;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;
-  font-size:11px;color:var(--sub);transition:color .2s;
+  flex:1 1 0;padding:9px 14px 10px;min-width:60px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:11px;color:var(--sub);border-radius:14px;
+  transition:color .2s,background .2s;
 }
-nav button .ico{font-size:22px;line-height:1}
-nav button.active{color:var(--gold);font-weight:700}
+nav button .ico{font-size:21px;line-height:1}
+nav button.active{color:#fff;font-weight:700;background:var(--accent)}
 
 /* ========== 主内容区 ========== */
 main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
@@ -140,12 +145,12 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 .code-badge{
   display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
   min-width:22px;height:22px;padding:0 6px;margin-right:7px;border-radius:7px;
-  background:var(--gold-bg);color:#b07500;font-size:12px;font-weight:800;
+  background:var(--gold-bg);color:var(--accent);font-size:12px;font-weight:800;
 }
 .chip .code{
   font-style:normal;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
   min-width:18px;height:18px;padding:0 5px;border-radius:6px;
-  background:rgba(255,255,255,.75);color:#b07500;font-size:11px;font-weight:800;
+  background:rgba(255,255,255,.75);color:var(--accent);font-size:11px;font-weight:800;
 }
 .chip.minus .code{background:rgba(255,255,255,.6);color:var(--minus)}
 .quick-row input[name=code]{flex:1;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;font-size:16px;font-weight:700;text-align:center}
@@ -197,10 +202,10 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 .chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
 .chart-bar{
   width:56%;max-width:34px;border-radius:6px 6px 3px 3px;min-height:3px;
-  background:linear-gradient(180deg,#ffd166,var(--gold));
+  background:var(--accent);
   transition:height .4s;position:relative;
 }
-.chart-bar.neg{background:linear-gradient(180deg,#ff9a8d,var(--minus))}
+.chart-bar.neg{background:var(--minus)}
 .chart-col .day{font-size:10px;color:var(--sub)}
 .chart-col .val{font-size:10px;font-weight:700;color:var(--sub)}
 
@@ -277,7 +282,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 /* 兑换进度条 */
 .progress-wrap{margin:4px 0 12px}
 .progress-track{height:10px;background:var(--line);border-radius:6px;overflow:hidden}
-.progress-fill{height:100%;background:linear-gradient(90deg,#a89bff,var(--purple));border-radius:6px;transition:width .5s}
+.progress-fill{height:100%;background:var(--accent);border-radius:6px;transition:width .5s}
 .progress-text{font-size:11px;color:var(--sub);margin-top:5px}
 
 /* ========== 设置页 ========== */
@@ -438,10 +443,10 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
   background:#fff;padding:30px 34px;font-family:"PingFang SC","Microsoft YaHei",sans-serif;
 }
 #report .rp-head{text-align:center;margin-bottom:6px}
-#report .rp-head .t{font-size:24px;font-weight:800;color:#f5a623}
+#report .rp-head .t{font-size:24px;font-weight:800;color:#3b6fe0}
 #report .rp-head .d{font-size:12px;color:#8a94a6;margin-top:4px}
 #report .rp-balance{
-  display:flex;justify-content:space-around;background:#fff6e5;border-radius:14px;
+  display:flex;justify-content:space-around;background:#eef2fc;border-radius:14px;
   padding:16px;margin:16px 0;text-align:center;
 }
 #report .rp-balance .v{font-size:26px;font-weight:800}
@@ -452,8 +457,8 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
 #report .sec{font-size:15px;font-weight:800;color:#2f3542;margin:18px 0 4px}
 #report .sec small{font-size:11px;color:#8a94a6;font-weight:400}
 #report .rp-quote{
-  margin-top:22px;padding:14px 18px;background:#fff6e5;border-radius:14px;
-  font-size:14px;color:#b07d2a;line-height:1.7;text-align:center;font-weight:600;
+  margin-top:22px;padding:14px 18px;background:#eef2fc;border-radius:14px;
+  font-size:14px;color:#3b5bb0;line-height:1.7;text-align:center;font-weight:600;
 }
 </style>
 </head>
@@ -1379,12 +1384,12 @@ function buildReport(){
                                .sort((a,b)=>b.pts-a.pts);
     const top = ranked[0], last = ranked[ranked.length-1];
     const rows = ranked.map((x,i)=>{
-      const tag = x.k.id===top.k.id ? '<span style="color:#f5a623;font-weight:700">🏅 进步之星</span>'
-                 : (x.k.id===last.k.id && ranked.length>1 ? '<span style="color:#7c6cf0;font-weight:700">💪 继续加油</span>' : '');
+      const tag = x.k.id===top.k.id ? '<span style="color:#3b6fe0;font-weight:700">🏅 进步之星</span>'
+                 : (x.k.id===last.k.id && ranked.length>1 ? '<span style="color:#9aa3b2;font-weight:700">💪 继续加油</span>' : '');
       return `<tr>
         <td>${i+1}</td>
         <td>${x.k.name}（${GENDER_LABEL[x.k.gender]||''}）</td>
-        <td style="font-weight:700;color:#f5a623">${x.pts} 分</td>
+        <td style="font-weight:700;color:#3b6fe0">${x.pts} 分</td>
         <td>${tag}</td>
       </tr>`;
     }).join('');
@@ -1409,7 +1414,7 @@ function buildReport(){
       <td>${fmtTime(r.time)}</td>
       <td>${KIND_NAME[r.kind]}</td>
       <td>${r.name}${multi?` · ${child}`:''}</td>
-      <td style="font-weight:700;color:${r.pts>0?'#2fb380':'#f0655a'}">${r.pts>0?'+':''}${r.pts}</td>
+      <td style="font-weight:700;color:${r.pts>0?'#2e9e6b':'#e0594f'}">${r.pts>0?'+':''}${r.pts}</td>
     </tr>`).join('');
   const exRows = sortedEx.map(e=>{
     const ok = total>=e.pts;
@@ -1424,14 +1429,14 @@ function buildReport(){
   // 单宝宝显示余额卡；多宝宝在家庭榜里已展示，这里仍给当前宝宝一份明细
   const balanceHTML = multi ? `
     <div class="rp-balance">
-      <div><div class="v" style="color:#f5a623">${total}</div><div class="l">${C().name}当前总积分</div></div>
+      <div><div class="v" style="color:#2b2f36">${total}</div><div class="l">${C().name}当前总积分</div></div>
       <div><div class="v" style="color:#2fb380">+${C().records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
-      <div><div class="v" style="color:#f0655a">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
+      <div><div class="v" style="color:#e0594f">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
     </div>` : `
     <div class="rp-balance">
-      <div><div class="v" style="color:#f5a623">${total}</div><div class="l">当前总积分</div></div>
+      <div><div class="v" style="color:#2b2f36">${total}</div><div class="l">当前总积分</div></div>
       <div><div class="v" style="color:#2fb380">+${C().records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
-      <div><div class="v" style="color:#f0655a">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
+      <div><div class="v" style="color:#e0594f">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
     </div>`;
 
   $('#report').innerHTML = `
