@@ -323,8 +323,16 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 }
 
 /* ========== 宝宝切换条 ========== */
+/* 外层负责 sticky 置顶 + 整屏宽底色（盖住滚过的内容）+ 微阴影分层 */
+.kids-bar-wrap{
+  position:sticky;top:0;z-index:40;
+  background:var(--bg);
+  padding:12px 0 2px;
+  box-shadow:0 6px 8px -8px rgba(47,53,66,.18);
+}
+/* 内层负责横向滚动（宝宝多时左右滑） */
 .kids-bar{
-  display:flex;gap:8px;overflow-x:auto;padding:12px 14px 2px;
+  display:flex;gap:8px;overflow-x:auto;padding:0 14px;
   max-width:1280px;margin:0 auto;scrollbar-width:none;
 }
 .kids-bar::-webkit-scrollbar{display:none}
@@ -501,8 +509,10 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
   </div>
 </div>
 
-<!-- 宝宝切换条：点谁记谁的分 -->
-<div class="kids-bar" id="kidsBar"></div>
+<!-- 宝宝切换条：点谁记谁的分（外层 sticky 置顶，滚动时始终可见，不怕忘记当前是哪个宝宝） -->
+<div class="kids-bar-wrap">
+  <div class="kids-bar" id="kidsBar"></div>
+</div>
 
 <!-- 今日寄语：每天一句励志话，给小朋友打气 -->
 <div class="quote-strip" id="quoteStrip"></div>
