@@ -510,7 +510,7 @@ main{padding:14px 14px 90px;max-width:1080px;margin:0 auto}
     <div class="card">
       <div class="card-title">🔢 序号记分 <span class="tag">对着积分表输序号，回车记好</span></div>
       <div class="quick-row code-row">
-        <input type="number" name="code" id="codeInput" placeholder="输序号，如：6" min="1">
+        <input type="text" name="code" id="codeInput" placeholder="输序号，多个用空格隔开，如：1 3 5" inputmode="numeric">
         <div class="code-hint" id="codeHint"></div>
         <button class="go" onclick="quickAddByCode()">记一笔</button>
       </div>
@@ -941,22 +941,35 @@ function findItemByCode(code){
   if(hit) return {kind:'punish', item:hit};
   return null;
 }
+// 解析多个序号（空格 / 逗号 / 顿号分隔）
+function parseCodes(str){
+  return (str||'').trim().split(/[\s,，、]+/).map(s=>parseInt(s,10)).filter(n=>!isNaN(n) && n>0);
+}
 // 输入序号时实时提示命中的项目，避免记错
 function renderCodeHint(){
-  const v = parseInt($('#codeInput').value);
+  const codes = parseCodes($('#codeInput').value);
   const hint = $('#codeHint');
-  if(!v){ hint.textContent=''; return; }
-  const hit = findItemByCode(v);
-  if(!hit){ hint.textContent = '没有序号 '+v+' 的项目'; hint.style.color = 'var(--sub)'; return; }
-  hint.textContent = `✔ ${hit.item.name} ${hit.kind==='reward'?'+':'-'}${hit.item.pts}`;
-  hint.style.color = hit.kind==='reward' ? 'var(--plus)' : 'var(--minus)';
+  if(!codes.length){ hint.textContent=''; return; }
+  const parts = codes.map(c=>{
+    const hit = findItemByCode(c);
+    return hit ? `✔${hit.item.name} ${hit.kind==='reward'?'+':'-'}${hit.item.pts}` : `序号 ${c} ❓`;
+  });
+  hint.textContent = parts.join('　');
+  hint.style.color = '';
 }
 function quickAddByCode(){
-  const v = parseInt($('#codeInput').value);
-  if(!v) return toast('请输入项目序号');
-  const hit = findItemByCode(v);
-  if(!hit) return toast('没有序号 '+v+' 的项目，去设置页看看吧');
-  addRecord(hit.kind, hit.item.name, hit.kind==='reward'?hit.item.pts:-hit.item.pts);
+  const codes = parseCodes($('#codeInput').value);
+  if(!codes.length) return toast('请输入项目序号');
+  let ok = 0; const miss = [];
+  codes.forEach(c=>{
+    const hit = findItemByCode(c);
+    if(!hit){ miss.push(c); return; }
+    addRecord(hit.kind, hit.item.name, hit.kind==='reward'?hit.item.pts:-hit.item.pts);
+    ok++;
+  });
+  if(!ok) return toast('没有序号 '+codes.join('/')+' 的项目，去设置页看看吧');
+  if(ok>1) toast(miss.length ? `已记 ${ok} 笔，序号 ${miss.join('/')} 不存在` : `🎉 已记 ${ok} 笔`);
+  else if(miss.length) toast(`序号 ${miss.join('/')} 不存在`);
   $('#codeInput').value = '';
   renderCodeHint();
 }
