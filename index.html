@@ -92,7 +92,8 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 
 /* 桌面端：记分页左右两栏 */
 @media(min-width:640px){
-  #tab-record{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  /* 注意：必须挂 .active，否则 ID 选择器优先级高于 .tab-page{display:none}，切到其他页时记分内容会一直显示 */
+  #tab-record.active{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
   #tab-record > .card{margin-bottom:0}
   #tab-record .record-grid{grid-column:1 / -1}
   .record-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
