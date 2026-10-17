@@ -89,6 +89,7 @@ nav button.active{color:#fff;font-weight:700;background:var(--accent)}
 
 /* ========== 主内容区 ========== */
 main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
+.pages{position:relative}   /* 滑动切页时旧页 absolute 的定位上下文 */
 
 /* 桌面端：记分页左右两栏 */
 @media(min-width:640px){
@@ -113,11 +114,20 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 .tab-page{display:none}
 .tab-page.active{display:block;animation:fadein .25s}
 @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-/* 左右滑动切页的滑入动画（放 .active 后面，同优先级按源码顺序覆盖 fadein） */
-@keyframes slideFromRight{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
-@keyframes slideFromLeft{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:none}}
-.tab-page.slide-r{animation:slideFromRight .22s ease}
-.tab-page.slide-l{animation:slideFromLeft .22s ease}
+/* 左右滑动切页：旧页滑出+新页滑入的双页平滑过渡（.pages 提供定位上下文，旧页 absolute 不占位避免布局跳动） */
+@keyframes enterFromRight{from{opacity:0;transform:translateX(26%)}to{opacity:1;transform:translateX(0)}}
+@keyframes enterFromLeft{from{opacity:0;transform:translateX(-26%)}to{opacity:1;transform:translateX(0)}}
+@keyframes leaveToLeft{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(-26%)}}
+@keyframes leaveToRight{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(26%)}}
+.tab-page.enter-from-r,.tab-page.enter-from-l{position:relative;z-index:2}
+.tab-page.enter-from-r{animation:enterFromRight .24s cubic-bezier(.2,.7,.3,1)}
+.tab-page.enter-from-l{animation:enterFromLeft .24s cubic-bezier(.2,.7,.3,1)}
+.tab-page.leave-to-l,.tab-page.leave-to-r{position:absolute;inset:0;z-index:1;pointer-events:none}
+.tab-page.leave-to-l{animation:leaveToLeft .24s cubic-bezier(.4,0,.6,1)}
+.tab-page.leave-to-r{animation:leaveToRight .24s cubic-bezier(.4,0,.6,1)}
+@media (prefers-reduced-motion: reduce){
+  .tab-page.enter-from-r,.tab-page.enter-from-l,.tab-page.leave-to-l,.tab-page.leave-to-r{animation:none}
+}
 
 /* ========== 卡片通用 ========== */
 .card{background:var(--card);border-radius:var(--radius);padding:16px;margin-bottom:14px}
@@ -523,6 +533,7 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 <div class="quote-strip" id="quoteStrip"></div>
 
 <main>
+  <div class="pages">
   <!-- ================= 记分页 ================= -->
   <section id="tab-record" class="tab-page active">
     <!-- 自定义快速记分：不在列表里的临时加/扣分 -->
@@ -661,6 +672,7 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
     </div>
     </div>
   </section>
+  </div><!-- /.pages -->
 </main>
 
 <!-- ===== 底部导航 ===== -->
@@ -904,13 +916,31 @@ function renderBalance(){
 }
 
 /* ---------- 页签切换 ---------- */
+const SWITCH_MS=240;   // 与 CSS 过渡时长保持一致
+let switchGen=0;       // 过渡代际：快速连滑时丢弃过期的清理定时器
 function switchTab(name, btn, dir){
-  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active','slide-r','slide-l'));
-  const page = $('#tab-'+name);
-  page.classList.add('active');
-  if(dir) page.classList.add(dir>0?'slide-r':'slide-l');   // 手势切页时按方向滑入
+  const gen=++switchGen;
+  // 先结束上一场没做完的过渡（快速连滑时可能还没结束）
+  document.querySelectorAll('.tab-page.leave-to-l,.tab-page.leave-to-r').forEach(p=>p.classList.remove('active','leave-to-l','leave-to-r'));
+  const old=document.querySelector('.tab-page.active:not(.leave-to-l):not(.leave-to-r)');
+  if(old) old.classList.remove('enter-from-r','enter-from-l');
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
+  const page=$('#tab-'+name);
+  if(dir && old && old!==page){
+    // 手势切页：旧页原地滑出（absolute 不占位，新页直接入流，无布局跳动），新页从对应方向滑入
+    old.classList.add(dir>0?'leave-to-l':'leave-to-r');
+    page.classList.add('active', dir>0?'enter-from-r':'enter-from-l');
+    setTimeout(()=>{
+      if(gen!==switchGen) return;   // 已有更新的过渡接管，这份过期清理作废
+      old.classList.remove('active','leave-to-l','leave-to-r');
+      page.classList.remove('enter-from-r','enter-from-l');
+    }, SWITCH_MS);
+  }else{
+    // 点 tab 按钮：直接切换 + 淡入
+    document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+    page.classList.add('active');
+  }
   window.scrollTo(0,0);
 }
 
@@ -939,7 +969,7 @@ function switchTab(name, btn, dir){
     if(!horiz) return;
     const dx=e.changedTouches[0].clientX-sx;
     if(Math.abs(dx)<60) return;                                        // 滑动距离不够不切
-    const cur=TABS.indexOf(document.querySelector('.tab-page.active').id.replace('tab-',''));
+    const cur=TABS.indexOf((document.querySelector('.tab-page.active:not(.leave-to-l):not(.leave-to-r)')||{id:'tab-record'}).id.replace('tab-',''));
     const next=cur+(dx<0?1:-1);                                        // 左滑→下一页，右滑→上一页
     if(next<0||next>=TABS.length) return;                              // 到头不绕回
     const name=TABS[next];
