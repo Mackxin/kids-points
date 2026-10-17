@@ -4,11 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>儿童积分银行 · 小积分大学问</title>
-<!-- 导出功能依赖：html2canvas(截图) + jsPDF(生成PDF)，双CDN：主源失败自动切备用 -->
-<script src="https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script>window.html2canvas || document.write('<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>')</script>
-<script src="https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script>window.jspdf || document.write('<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"><\/script>')</script>
+<!-- 导出依赖 html2canvas + jsPDF 体积较大，改为「点导出时才按需异步加载」，避免打开页面时卡顿。见底部 ensureExportLibs() -->
 <style>
 /* ========== 基础变量：清新简约配色 ========== */
 :root{
@@ -1563,8 +1559,33 @@ function onExpDateChange(){
   const d = $('#expDay')   ? $('#expDay').value   : '';
   reportDateFilter = {y:y?+y:null, m:m?+m:null, d:d?+d:null};
 }
+// 按需异步加载导出依赖（html2canvas + jsPDF），打开页面时不再阻塞
+function loadScript(src, fallback){
+  return new Promise((res, rej)=>{
+    const s = document.createElement('script');
+    s.src = src; s.onload = res;
+    s.onerror = () => {
+      if(!fallback) return rej();
+      const f = document.createElement('script');
+      f.src = fallback; f.onload = res; f.onerror = rej;
+      document.head.appendChild(f);
+    };
+    document.head.appendChild(s);
+  });
+}
+let _libLoading = null;
+function ensureExportLibs(){
+  if(window.html2canvas && window.jspdf) return Promise.resolve();
+  if(_libLoading) return _libLoading;
+  _libLoading = Promise.all([
+    loadScript('https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'),
+    loadScript('https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'),
+  ]).then(()=>{ if(!window.html2canvas || !window.jspdf) throw new Error('导出组件加载失败'); });
+  return _libLoading;
+}
 async function exportImage(){
-  if(typeof html2canvas === 'undefined') return toast('截图组件没加载出来，请联网后重试');
+  toast('正在准备导出组件…');
+  try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
   const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();   // 文件名标注对象+时间范围
   buildReport();
   toast('正在生成图片…');
@@ -1582,7 +1603,8 @@ async function exportImage(){
   reportDateFilter = {y:null, m:null, d:null};
 }
 async function exportPDF(){
-  if(typeof html2canvas === 'undefined' || !window.jspdf) return toast('PDF组件没加载出来，请联网后重试');
+  toast('正在准备导出组件…');
+  try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
   const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();
   buildReport();
   toast('正在生成PDF…');
