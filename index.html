@@ -846,17 +846,34 @@ function mergeItems(children){
   children.forEach(c=>{ (c.rewards||[]).forEach(x=>r.push(x)); (c.punish||[]).forEach(x=>p.push(x)); (c.exchange||[]).forEach(x=>e.push(x)); });
   return { rewards:reId(uniq(r)), punish:reId(uniq(p)), exchange:reId(uniq(e)) };
 }
+// 把一份数据（localStorage 或导入的备份）规范成「项目全局」结构（v2）；不合法返回 null
+function normalizeData(d){
+  if(!d || !d.children || !d.children.length) return null;
+  d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; if(!c.records) c.records=[]; });
+  if(!d.children.find(c=>c.id===d.cur)) d.cur = d.children[0].id;
+  if(Array.isArray(d.rewards)){          // 已是「项目全局」新结构
+    d.punish = d.punish||[]; d.exchange = d.exchange||[];
+    return d;
+  }
+  // 旧结构：每个宝宝自带项目 → 合并成全局共用
+  const merged = mergeItems(d.children);
+  return { cur:d.cur, children:d.children, rewards:merged.rewards, punish:merged.punish, exchange:merged.exchange };
+}
+// 数据里出现过的最大 id（导入后把 uid 跳到它之上，防止新记录 id 撞车）
+function maxDataId(d){
+  let m = 0;
+  d.children.forEach(c=>{
+    m = Math.max(m, c.id||0);
+    (c.records||[]).forEach(r=>{ m = Math.max(m, r.id||0); });
+  });
+  [...(d.rewards||[]), ...(d.punish||[]), ...(d.exchange||[])].forEach(x=>{ m = Math.max(m, x.id||0); });
+  return m;
+}
 function load(){
   try{
     const d = JSON.parse(localStorage.getItem(KEY));
-    if(d && d.children && d.children.length){
-      d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; if(!c.records) c.records=[]; });
-      if(!d.children.find(c=>c.id===d.cur)) d.cur = d.children[0].id;
-      if(d.rewards) return d;   // 已是「项目全局」新结构
-      // 旧结构：每个宝宝自带项目 → 合并成全局共用
-      const merged = mergeItems(d.children);
-      return { cur:d.cur, children:d.children, rewards:merged.rewards, punish:merged.punish, exchange:merged.exchange };
-    }
+    const n = normalizeData(d);
+    if(n) return n;
   }catch(e){}
   const legacy = loadLegacy();
   if(legacy) return { cur: legacy.child.id, children:[legacy.child], rewards:legacy.rewards, punish:legacy.punish, exchange:legacy.exchange };
@@ -1521,9 +1538,13 @@ function restoreJSON(input){
   reader.onload = () => {
     try{
       const d = JSON.parse(reader.result);
-      if(!d.rewards || !d.records) throw 0;
+      const norm = normalizeData(d);      // 与 load() 同一套校验/兼容逻辑
+      if(!norm) throw 0;                  // 结构不对才提示格式错误
       if(!confirm('导入会覆盖当前所有数据，确定继续吗？')) return;
-      db = d; save(); renderAll();
+      db = norm;
+      ensureCodes(db);                    // 老备份没有序号的自动补上
+      uid = Math.max(uid, maxDataId(db)); // uid 跳到比所有现有 id 都大，防止新记录 id 重复
+      save(); renderAll();
       toast('📥 数据恢复成功');
     }catch(e){ toast('文件格式不对哦'); }
     input.value='';
