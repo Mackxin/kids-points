@@ -225,8 +225,17 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 .record-item{
   display:flex;align-items:center;gap:10px;
   padding:11px 4px;border-bottom:1px solid var(--line);
+  cursor:pointer;transition:background .15s;   /* 点记录可编辑 */
 }
+.record-item:active{background:var(--bg)}
 .record-item:last-child{border-bottom:none}
+/* 编辑记录弹窗内的 类型+分值 一行 */
+.rec-edit-row{display:flex;gap:8px}
+.rec-edit-row select{
+  flex:1;border:1.5px solid var(--line);border-radius:10px;
+  padding:8px;font-size:13px;background:var(--card);color:var(--ink);
+}
+.rec-edit-row input{flex:1}
 .record-ico{
   width:36px;height:36px;border-radius:12px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:17px;
@@ -585,7 +594,7 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 
     <!-- 记录明细 -->
     <div class="card">
-      <div class="card-title">📋 记录明细 <span class="tag">点 × 可撤销该笔</span></div>
+      <div class="card-title">📋 记录明细 <span class="tag">点记录可编辑 · 点 × 撤销</span></div>
       <div class="date-filter">
         <select id="selYear" onchange="onDateChange()"><option value="">全部年份</option></select>
         <select id="selMonth" onchange="onDateChange()"><option value="">全部月份</option></select>
@@ -689,6 +698,26 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
     <div class="modal-btns">
       <button class="cancel" onclick="closeEdit()">取消</button>
       <button class="ok" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑记录弹窗（明细页点一条记录打开） -->
+<div class="modal-mask" id="recEditModal">
+  <div class="modal">
+    <h3>✎ 编辑记录</h3>
+    <input type="text" id="recEditName" placeholder="记录名称" maxlength="20">
+    <div class="rec-edit-row">
+      <select id="recEditKind">
+        <option value="reward">🌟 奖励（加分）</option>
+        <option value="punish">⚠️ 惩罚（扣分）</option>
+      </select>
+      <input type="number" id="recEditPts" placeholder="分值" min="1">
+    </div>
+    <input type="datetime-local" id="recEditTime">
+    <div class="modal-btns">
+      <button class="cancel" onclick="closeRecEdit()">取消</button>
+      <button class="ok" onclick="saveRecEdit()">保存</button>
     </div>
   </div>
 </div>
@@ -1272,14 +1301,14 @@ function renderRecords(){
     const weekday = '日一二三四五六'[new Date(k).getDay()];
     return `<div class="day-label">📅 ${m}月${d}日 星期${weekday}</div>` +
       groups[k].map(r=>`
-      <div class="record-item">
+      <div class="record-item" onclick="openRecEdit(${r.id})">
         <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
         <div class="record-mid">
           <div class="name">${r.name}</div>
           <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
         </div>
         <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
-        <button class="record-del" title="撤销" onclick="delRecord(${r.id})">×</button>
+        <button class="record-del" title="撤销" onclick="event.stopPropagation();delRecord(${r.id})">×</button>
       </div>`).join('');
   }).join('');
 }
@@ -1520,6 +1549,46 @@ function saveEdit(){
 // 点弹窗遮罩关闭
 $('#editModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeEdit(); });
 $('#exportModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) cancelExport(); });
+
+/* ================= 编辑记录（明细页点一条记录） ================= */
+let recEditId = null;
+// 时间戳 → datetime-local 输入框值（本地时间，精确到分）
+function toLocalInput(ts){
+  const d=new Date(ts), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function openRecEdit(id){
+  const r = C().records.find(x=>x.id===id);
+  if(!r) return;
+  recEditId = id;
+  $('#recEditName').value = r.name;
+  $('#recEditPts').value = Math.abs(r.pts);
+  $('#recEditTime').value = toLocalInput(r.time);
+  // 兑换记录不切换类型（隐藏类型选择，保持 exchange）
+  const isEx = r.kind==='exchange';
+  $('#recEditKind').style.display = isEx ? 'none' : '';
+  $('#recEditKind').value = isEx ? 'reward' : r.kind;
+  $('#recEditModal').classList.add('show');
+}
+function closeRecEdit(){ $('#recEditModal').classList.remove('show'); recEditId=null; }
+function saveRecEdit(){
+  if(recEditId==null) return;
+  const r = C().records.find(x=>x.id===recEditId);
+  if(!r) return closeRecEdit();
+  const name = $('#recEditName').value.trim();
+  const pts = parseInt($('#recEditPts').value);
+  if(!name) return toast('名称不能为空');
+  if(!pts || pts<=0) return toast('分值要大于0');
+  const kind = $('#recEditKind').style.display==='none' ? r.kind : $('#recEditKind').value;
+  const t = new Date($('#recEditTime').value).getTime();
+  r.name = name;
+  r.kind = kind;
+  r.pts = (kind==='punish' || kind==='exchange') ? -pts : pts;   // 惩罚/兑换记负分
+  if(!isNaN(t)) r.time = t;
+  save(); renderAll(); closeRecEdit();
+  toast('✅ 记录已更新');
+}
+$('#recEditModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeRecEdit(); });
 
 /* ================= 数据备份与恢复 ================= */
 function backupJSON(){
