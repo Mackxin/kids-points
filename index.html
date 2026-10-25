@@ -95,6 +95,8 @@ main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
 @media(min-width:640px){
   /* 注意：必须挂 .active，否则 ID 选择器优先级高于 .tab-page{display:none}，切到其他页时记分内容会一直显示 */
   #tab-record.active{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  /* 日期条独占一整行，不挤占自定义/序号记分卡的位置 */
+  #tab-record.active .record-date-bar{grid-column:1 / -1}
   #tab-record > .card{margin-bottom:0}
   #tab-record .record-grid{grid-column:1 / -1}
   .record-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
@@ -364,6 +366,34 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 }
 .quote-strip b{color:var(--gold)}
 
+/* ========== 记分日期条（补记入口） ========== */
+/* 默认「今天」；点整条弹出日期选择器切到过去任意一天，此后记分都落在选中的那天 */
+.record-date-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  background:var(--card);border:1.5px solid var(--line);border-radius:16px;
+  padding:10px 14px;margin-bottom:14px;cursor:pointer;user-select:none;
+  box-shadow:0 2px 8px rgba(47,53,66,.06);
+  transition:border-color .2s,background .2s;
+}
+.record-date-bar:active{border-color:var(--gold)}
+.record-date-bar .rdb-ico{font-size:17px;line-height:1}
+.record-date-bar .rdb-label{font-weight:700;color:var(--ink);font-size:14px}
+.record-date-bar .rdb-hint{font-size:12px;color:var(--sub);margin-left:auto}
+.record-date-bar .rdb-today{
+  border:none;background:var(--gold-bg);color:var(--gold);
+  font-size:12px;font-weight:700;border-radius:9px;padding:4px 10px;cursor:pointer;
+}
+/* 补记态：选中的不是今天 → 整条金色高亮，醒目提醒「现在记的分落在过去那天」 */
+.record-date-bar.off-today{border-color:var(--gold);background:var(--gold-bg)}
+.record-date-bar.off-today .rdb-label{color:var(--gold)}
+/* date input 保持「已渲染但不可见」：display:none 会让 showPicker() 直接抛错 */
+.record-date-bar input[type=date]{
+  position:absolute;opacity:0;width:0;height:0;border:0;padding:0;margin:0;pointer-events:none;
+}
+@media(max-width:639px){
+  .record-date-bar .rdb-hint{display:none}
+}
+
 /* 设置页性别选择 */
 .gender-sel{
   border:1.5px solid var(--line);border-radius:9px;padding:5px 6px;
@@ -541,6 +571,15 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
   <div class="pages">
   <!-- ================= 记分页 ================= -->
   <section id="tab-record" class="tab-page active">
+    <!-- 补记：忘记哪天的分，先把记分日期切到那天，之后所有记分都落在那天 -->
+    <div class="record-date-bar" id="recordDateBar" onclick="pickRecordDate()">
+      <span class="rdb-ico">📅</span>
+      <span class="rdb-label" id="recordDateLabel">记分日期 · 今天</span>
+      <span class="rdb-hint">点这里补记以前的分数</span>
+      <button class="rdb-today" id="recordDateToday" onclick="event.stopPropagation();resetRecordDate()">回到今天</button>
+      <input type="date" id="recordDateInput">
+    </div>
+
     <!-- 自定义快速记分：不在列表里的临时加/扣分 -->
     <div class="card">
       <div class="card-title">✏️ 自定义记分 <span class="tag">列表里没有的可以在这里加</span></div>
@@ -1107,6 +1146,61 @@ function switchTab(name, btn){
 })();
 
 /* ================= 记分页 ================= */
+/* ---------- 补记：忘记哪天的分，先把记分日期切到那天，之后所有记分都落在那天 ---------- */
+let recordDate = startOfToday();   // 当前记分日期（默认今天，可切到过去任意一天）
+function startOfToday(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+// 日期徽标：今天 / 昨天 / 前天 / 10月23日 / 2025年10月23日（跨年才显示年份）
+function fmtDateChip(d){
+  const diff = Math.round((startOfToday() - d)/86400000);
+  if(diff===0) return '今天';
+  if(diff===1) return '昨天';
+  if(diff===2) return '前天';
+  return (d.getFullYear()===new Date().getFullYear()?'':d.getFullYear()+'年')
+    + (d.getMonth()+1) + '月' + d.getDate() + '日';
+}
+function renderRecordDateBar(){
+  const bar = $('#recordDateBar');
+  $('#recordDateLabel').textContent = '记分日期 · ' + fmtDateChip(recordDate);
+  const off = dayKey(recordDate) !== dayKey(Date.now());
+  bar.classList.toggle('off-today', off);
+  $('#recordDateToday').style.display = off ? '' : 'none';
+}
+// 点日期条 → 唤起系统日期选择器（showPicker 不存在的老浏览器退化为 click）
+function pickRecordDate(){
+  const inp = $('#recordDateInput');
+  inp.value = dayKey(recordDate);   // 同步当前选中值
+  try{
+    if(inp.showPicker) inp.showPicker(); else inp.click();
+  }catch(e){
+    try{ inp.click(); }catch(_){}
+  }
+}
+// 选定日期（date input 的 change）：解析本地 y-m-d，落到当天 0 点；不允许选未来
+function setRecordDate(v){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v||'');
+  if(!m) return toast('日期格式不对哦');
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  if(isNaN(d)) return toast('日期格式不对哦');
+  d.setHours(0,0,0,0);
+  if(d > startOfToday()) return toast('不能选未来的日期哦');
+  recordDate = d;
+  renderRecordDateBar();
+  toast('📅 记分日期：' + fmtDateChip(d));
+}
+function resetRecordDate(){
+  recordDate = startOfToday();
+  renderRecordDateBar();
+  toast('📅 已回到今天');
+}
+// 记分时间戳：选中日期的 0 点 + 当前时刻（补记也能记下当天具体的时分）
+function recordTime(){
+  const d = new Date(recordDate);
+  const now = new Date();
+  d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  return d.getTime();
+}
+$('#recordDateInput').addEventListener('change', e=>setRecordDate(e.target.value));
+
 let quickMode = 'plus';   // 自定义记分当前模式
 function setMode(m){
   quickMode = m;
@@ -1123,9 +1217,9 @@ function quickAdd(){
   $('#quickAmount').value = 1;
 }
 
-// 记一笔（统一入口）
+// 记一笔（统一入口；时间落在「记分日期」上，补记过去的分数也走这里）
 function addRecord(kind, name, pts){
-  C().records.unshift({id:++uid, kind, name, pts, time:Date.now()});
+  C().records.unshift({id:++uid, kind, name, pts, time:recordTime()});
   save();
   renderAll();
   toast((pts>0?'🎉 +':'📉 ')+pts+' 分 · '+name);
@@ -1912,6 +2006,7 @@ function runExport(mode){
 
 /* ================= 总渲染 ================= */
 function renderAll(){
+  renderRecordDateBar();
   renderKidsBar();
   $('#quoteStrip').innerHTML = '💡 今日寄语：<b>' + dailyQuote() + '</b>';
   renderBalance();
