@@ -266,6 +266,36 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
   background:var(--card);color:var(--sub);border:1px solid var(--line);
 }
 .filter-row button.on{background:var(--gold);color:#fff;border-color:var(--gold);font-weight:700}
+
+/* ========== 批量删除记录 ========== */
+/* 标题栏右侧入口按钮 */
+.batch-toggle{
+  margin-left:auto;font-size:12px;font-weight:700;flex-shrink:0;
+  background:var(--gold-bg);color:var(--gold);border-radius:9px;padding:4px 10px;
+}
+/* 管理模式顶部的操作条：全选 / 全不选 / 已选数 / 删除所选 */
+.batch-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  background:var(--gold-bg);border-radius:12px;padding:8px 10px;margin-bottom:12px;
+}
+.batch-bar .bb-btn{
+  font-size:12px;font-weight:700;padding:5px 12px;border-radius:9px;
+  background:var(--card);color:var(--ink);border:1px solid var(--line);
+}
+.batch-bar .bb-btn:disabled{opacity:.45}
+.batch-bar .bb-count{font-size:12px;color:var(--sub)}
+.batch-bar .bb-count b{color:var(--gold)}
+.batch-bar .bb-del{
+  margin-left:auto;font-size:12px;font-weight:700;padding:5px 12px;border-radius:9px;
+  background:var(--minus);color:#fff;
+}
+.batch-bar .bb-del:disabled{opacity:.45}
+/* 行首自绘复选框（record-item 是 div，用原生 input 会破坏布局） */
+.rec-check{
+  width:22px;height:22px;border-radius:7px;border:2px solid #c3c9d4;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;
+}
+.rec-check.on{background:var(--gold);border-color:var(--gold)}
 /* 时间筛选（年/月/日） */
 .date-filter{display:flex;gap:8px;margin-bottom:12px}
 .date-filter select{
@@ -633,17 +663,21 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 
     <!-- 记录明细 -->
     <div class="card">
-      <div class="card-title">📋 记录明细 <span class="tag">点记录可编辑 · 点 × 撤销</span></div>
-      <div class="date-filter">
-        <select id="selYear" onchange="onDateChange()"><option value="">全部年份</option></select>
-        <select id="selMonth" onchange="onDateChange()"><option value="">全部月份</option></select>
-        <select id="selDay" onchange="onDateChange()"><option value="">全部日期</option></select>
+      <div class="card-title">📋 记录明细 <span class="tag" id="recordListTag">点记录可编辑 · 点 × 撤销</span>
+        <button class="batch-toggle" id="batchToggle" onclick="toggleBatchMode()">☑ 批量</button>
       </div>
-      <div class="filter-row">
-        <button class="on" data-f="all" onclick="setFilter('all',this)">全部</button>
-        <button data-f="reward" onclick="setFilter('reward',this)">奖励</button>
-        <button data-f="punish" onclick="setFilter('punish',this)">惩罚</button>
-        <button data-f="exchange" onclick="setFilter('exchange',this)">兑换</button>
+      <div id="recordFilterZone">
+        <div class="date-filter">
+          <select id="selYear" onchange="onDateChange()"><option value="">全部年份</option></select>
+          <select id="selMonth" onchange="onDateChange()"><option value="">全部月份</option></select>
+          <select id="selDay" onchange="onDateChange()"><option value="">全部日期</option></select>
+        </div>
+        <div class="filter-row">
+          <button class="on" data-f='all' onclick="setFilter('all',this)">全部</button>
+          <button data-f='reward' onclick="setFilter('reward',this)">奖励</button>
+          <button data-f='punish' onclick="setFilter('punish',this)">惩罚</button>
+          <button data-f='exchange' onclick="setFilter('exchange',this)">兑换</button>
+        </div>
       </div>
       <div class="date-summary" id="dateSummary"></div>
       <div id="recordList"></div>
@@ -1360,6 +1394,9 @@ function renderChart(){
   }).join('');
 }
 // 记录列表（按天分组 + 年/月/日筛选）
+let curList = [];        // 当前筛选后可见的记录（批量「全选」只选这些）
+let batchMode = false;   // 批量管理模式
+const batchSel = new Set();   // 已选中的记录 id
 function renderRecords(){
   populateDateFilters();
   let list = C().records.filter(r=>curFilter==='all'||r.kind===curFilter);
@@ -1379,9 +1416,21 @@ function renderRecords(){
   $('#dateSummary').innerHTML = list.length
     ? `该范围共 <b>${list.length}</b> 笔 · 合计 <span style="color:var(--plus)">+${plus}</span> <span style="color:var(--minus)">${minus}</span>`
     : '';
+  curList = list;   // 缓存可见列表供批量全选使用
+  // 管理模式：隐藏筛选区/汇总，显示批量操作条
+  $('#recordFilterZone').style.display = batchMode ? 'none' : '';
+  $('#dateSummary').style.display   = batchMode ? 'none' : '';
   const box = $('#recordList');
+  const bar = batchMode
+    ? `<div class="batch-bar">
+        <button class="bb-btn" onclick="batchSelAll()">全选</button>
+        <button class="bb-btn" onclick="batchSelNone()">全不选</button>
+        <span class="bb-count">已选 <b>${batchSel.size}</b> 笔</span>
+        <button class="bb-del" id="batchDelBtn" ${batchSel.size?'':'disabled'} onclick="batchDelete()">删除所选</button>
+      </div>`
+    : '';
   if(!list.length){
-    box.innerHTML = '<div class="empty">这个时间段还没有记录～ 🌈</div>';
+    box.innerHTML = bar + '<div class="empty">这个时间段还没有记录～ 🌈</div>';
     return;
   }
   // 按日期分组
@@ -1390,21 +1439,83 @@ function renderRecords(){
     const k = dayKey(r.time);
     (groups[k]=groups[k]||[]).push(r);
   });
-  box.innerHTML = Object.keys(groups).map(k=>{
+  box.innerHTML = bar + Object.keys(groups).map(k=>{
     const [y,m,d] = k.split('-');
     const weekday = '日一二三四五六'[new Date(k).getDay()];
     return `<div class="day-label">📅 ${m}月${d}日 星期${weekday}</div>` +
-      groups[k].map(r=>`
-      <div class="record-item" onclick="openRecEdit(${r.id})">
-        <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
-        <div class="record-mid">
-          <div class="name">${r.name}</div>
-          <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
-        </div>
-        <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
-        <button class="record-del" title="撤销" onclick="event.stopPropagation();delRecord(${r.id})">×</button>
-      </div>`).join('');
+      groups[k].map(r=> batchMode
+        ? // 批量模式：行首复选框、点行切换选中、隐藏 × 单条撤销
+          `<div class="record-item" onclick="toggleSel(${r.id})">
+            <div class="rec-check ${batchSel.has(r.id)?'on':''}">${batchSel.has(r.id)?'✓':''}</div>
+            <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
+            <div class="record-mid">
+              <div class="name">${r.name}</div>
+              <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
+            </div>
+            <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
+          </div>`
+        : `<div class="record-item" onclick="openRecEdit(${r.id})">
+            <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
+            <div class="record-mid">
+              <div class="name">${r.name}</div>
+              <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
+            </div>
+            <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
+            <button class="record-del" title="撤销" onclick="event.stopPropagation();delRecord(${r.id})">×</button>
+          </div>`).join('');
   }).join('');
+}
+/* ---------- 批量删除：进入/退出管理模式 ---------- */
+function toggleBatchMode(){
+  batchMode = !batchMode;
+  batchSel.clear();
+  renderBatchUI();
+  renderRecords();
+}
+// 标题按钮 + 提示文案随模式切换
+function renderBatchUI(){
+  $('#batchToggle').textContent = batchMode ? '✕ 退出批量' : '☑ 批量';
+  $('#recordListTag').textContent = batchMode ? '点记录多选 · 可整批删除' : '点记录可编辑 · 点 × 撤销';
+}
+// 勾选/取消单条（局部更新复选框，不整表重渲染）
+function toggleSel(id){
+  if(batchSel.has(id)) batchSel.delete(id); else batchSel.add(id);
+  const cnt = document.querySelector('.bb-count b');
+  if(cnt) cnt.textContent = batchSel.size;
+  const del = $('#batchDelBtn');
+  if(del) del.disabled = !batchSel.size;
+  // 找到对应行更新复选框视觉（行顺序与 curList 分组一致，用 data 属性定位）
+  const rows = document.querySelectorAll('#recordList .record-item');
+  const idx = curList.findIndex(r=>r.id===id);
+  if(idx>=0 && rows[idx]){
+    const c = rows[idx].querySelector('.rec-check');
+    if(c){
+      const on = batchSel.has(id);
+      c.classList.toggle('on', on);
+      c.textContent = on ? '✓' : '';
+    }
+  }
+}
+// 全选 / 全不选（只作用于当前筛选可见的记录）
+function batchSelAll(){
+  curList.forEach(r=>batchSel.add(r.id));
+  renderRecords();
+}
+function batchSelNone(){
+  batchSel.clear();
+  renderRecords();
+}
+// 删除所选（确认后一次性删完，积分联动扣减/加回）
+function batchDelete(){
+  if(!batchSel.size) return;
+  const n = batchSel.size;
+  if(!confirm(`确定删除选中的 ${n} 笔记录吗？删除后积分会相应变化。`)) return;
+  C().records = C().records.filter(r=>!batchSel.has(r.id));
+  batchSel.clear();
+  batchMode = false;
+  renderBatchUI();
+  save(); renderAll();
+  toast(`已删除 ${n} 笔 🗑`);
 }
 // 撤销一笔记录
 function delRecord(id){
@@ -2007,6 +2118,7 @@ function runExport(mode){
 /* ================= 总渲染 ================= */
 function renderAll(){
   renderRecordDateBar();
+  renderBatchUI();
   renderKidsBar();
   $('#quoteStrip').innerHTML = '💡 今日寄语：<b>' + dailyQuote() + '</b>';
   renderBalance();
