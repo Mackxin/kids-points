@@ -204,11 +204,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** JS 桥：WebView 不支持 blob 链接下载，导出备份/报告图片/PDF 走这里写进「下载」目录 */
+    /** JS 桥：WebView 不支持 blob 链接下载，导出备份/报告图片/PDF 走这里写进「下载」目录
+     *  返回 null = 成功，返回字符串 = 失败原因（页面据此提示，不能一律报"已保存"） */
     class Bridge {
         @JavascriptInterface
-        public void saveBase64(String name, String base64) {
-            final String fname = (name == null || name.isEmpty()) ? "kids-points" : name;
+        public String saveBase64(String name, String base64) {
+            String fname = (name == null || name.trim().isEmpty()) ? "kids-points" : name.trim();
+            // 文件名里的路径分隔符会让 MediaStore 直接插不进去
+            fname = fname.replace("/", "_").replace("\\", "_");
             try {
                 byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
                 ContentValues cv = new ContentValues();
@@ -216,14 +219,15 @@ public class MainActivity extends Activity {
                 cv.put(MediaStore.Downloads.MIME_TYPE, mimeOf(fname));
                 Uri uri = getContentResolver()
                         .insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
-                if (uri == null) throw new Exception("无法创建文件");
+                if (uri == null) return "无法创建文件";
                 try (OutputStream os = getContentResolver().openOutputStream(uri)) {
-                    if (os == null) throw new Exception("无法写入文件");
+                    if (os == null) return "无法写入文件";
                     os.write(bytes);
                     os.flush();
                 }
+                return null;
             } catch (Exception e) {
-                toastOnUi("保存失败：" + e.getMessage());
+                return e.getMessage() == null ? "写入失败" : e.getMessage();
             }
         }
     }
@@ -261,16 +265,18 @@ public class MainActivity extends Activity {
         super.onActivityResult(req, res, data);
     }
 
-    /** 返回键：不在记分页就先回记分页；在记分页连按两次才退出（防误触） */
+    /** 返回键：批量选择中先退出批量 → 不在记分页先回记分页 → 记分页连按两次退出（防误触） */
     @Override
     public boolean onKeyDown(int code, KeyEvent e) {
         if (code == KeyEvent.KEYCODE_BACK && web != null) {
             web.evaluateJavascript(
-                    "(function(){var a=document.querySelector('.tab-page.active');"
+                    "(function(){"
+                            + "if(typeof batchMode!=='undefined'&&batchMode){toggleBatchMode();return 2;}"
+                            + "var a=document.querySelector('.tab-page.active');"
                             + "if(a&&a.id!=='tab-record'){switchTab('record',document.querySelector('nav button'));return 1;}"
                             + "return 0;})()",
                     value -> {
-                        if ("1".equals(value)) return;
+                        if ("1".equals(value) || "2".equals(value)) return;
                         long now = System.currentTimeMillis();
                         if (now - lastBackAt < 2000) finish();
                         else { lastBackAt = now; toastOnUi("再按一次退出"); }

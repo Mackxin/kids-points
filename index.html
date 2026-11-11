@@ -1371,6 +1371,9 @@ function populateDateFilters(){
     const cur = new Date().getFullYear();
     if(!years.includes(cur)) years.push(cur);
     years.sort((a,b)=>a-b);
+    // 选中的年份已经被删光了 → 自动复位筛选，否则下拉显示「全部年份」但列表还是空，
+    // 看起来像功能坏了
+    if(dateFilter.y && !years.includes(dateFilter.y)) dateFilter = {y:null, m:null, d:null};
     selY.innerHTML = '<option value="">全部年份</option>' + years.map(y=>`<option value="${y}">${y}年</option>`).join('');
     selY.value = dateFilter.y || '';
   }
@@ -1688,7 +1691,10 @@ function addChildFromForm(){
 }
 function switchChild(id){
   if(db.cur === id) return;
-  db.cur = id; dateFilter = {y:null, m:null, d:null}; save(); renderAll();
+  db.cur = id; dateFilter = {y:null, m:null, d:null};
+  // 🔴 必须退出批量模式并清空选中：否则接着点「删除所选」会删掉上一个宝宝选中的记录
+  batchMode = false; batchSel.clear();
+  save(); renderAll();
   toast('已切换到「'+C().name+'」');
 }
 function renameChild(id){
@@ -1830,16 +1836,21 @@ $('#recEditModal').addEventListener('click', e=>{ if(e.target===e.currentTarget)
 function saveFile(name, data){
   const bridge = window.AndroidBridge;
   if(bridge && bridge.saveBase64){
+    // 桥返回空 = 写成功，返回文字 = 错误原因；不能不看结果就报"已保存"
+    const done = b64 => {
+      let err = '';
+      try{ err = bridge.saveBase64(name, b64) || ''; }catch(e){ err = '原生桥调用失败'; }
+      if(err) toast('保存失败：' + err);
+      else toast('📁 已保存到「下载」目录：' + name);
+    };
     if(typeof data === 'string'){
       const i = data.indexOf(',');
-      bridge.saveBase64(name, i>=0 ? data.slice(i+1) : data);
-      toast('📁 已保存到「下载」目录：' + name);
+      done(i>=0 ? data.slice(i+1) : data);
     }else{
       const r = new FileReader();
       r.onload = () => {
         const s = String(r.result), i = s.indexOf(',');
-        bridge.saveBase64(name, i>=0 ? s.slice(i+1) : s);
-        toast('📁 已保存到「下载」目录：' + name);
+        done(i>=0 ? s.slice(i+1) : s);
       };
       r.readAsDataURL(data);
     }
@@ -1894,8 +1905,11 @@ function saveGistCfg(c){
   localStorage.setItem(GIST_KEY, JSON.stringify(c));
 }
 function renderGistCard(){
-  $('#gistToken').value = gistCfg.token || '';
-  $('#gistId').value    = gistCfg.gistId || '';
+  // 只在输入框为空时回填配置值——否则用户刚粘贴、还没点上传的 token 会被任何一次
+  // renderAll（记个分、切个宝宝）冲掉，白白重填一遍
+  const tEl = $('#gistToken'), gEl = $('#gistId');
+  if(tEl && !tEl.value.trim()) tEl.value = gistCfg.token || '';
+  if(gEl && !gEl.value.trim()) gEl.value = gistCfg.gistId || '';
   const box = $('#gistStatus');
   if(!gistCfg.token){
     box.innerHTML = '还没配置，<b>上传</b>后数据就会存到你自己的 Gist 里。';
@@ -1906,16 +1920,25 @@ function renderGistCard(){
     box.innerHTML = 'Token 已填，点<b>上传</b>开始同步。';
   }
 }
+// 把底层报错翻译成人话（fetch 失败时只会给 "Failed to fetch"）
+function niceError(e){
+  const m = String((e && e.message) || e || '');
+  if(/Failed to fetch|NetworkError|Load failed|Network request failed/i.test(m)) return '网络连不上，检查一下手机网络';
+  if(/JSON/i.test(m)) return '云端数据不是有效 JSON';
+  return m || '未知错误';
+}
 // 统一请求：401/403/404 给出人话提示
 async function ghApi(path, opt){
   opt = opt || {};
+  const headers = {
+    'Authorization': 'Bearer ' + (gistCfg.token || ''),
+    'Accept': 'application/vnd.github+json'
+  };
+  // 只有带 body 才需要 Content-Type，GET 带上会白多一次 CORS 预检
+  if(opt.body) headers['Content-Type'] = 'application/json';
   const res = await fetch('https://api.github.com' + path, {
     method: opt.method || 'GET',
-    headers: {
-      'Authorization': 'Bearer ' + (gistCfg.token || ''),
-      'Accept': 'application/vnd.github+json',
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: opt.body
   });
   if(!res.ok){
@@ -1948,7 +1971,7 @@ async function gistUpload(){
   }catch(e){
     saveGistCfg(Object.assign({}, gistCfg, {token}));   // token 先留着，免得白填
     renderGistCard();
-    toast('上传失败：' + e.message);
+    toast('上传失败：' + niceError(e));
   }
 }
 async function gistDownload(){
@@ -1982,7 +2005,7 @@ async function gistDownload(){
   }catch(e){
     saveGistCfg(Object.assign({}, gistCfg, {token}));
     renderGistCard();
-    toast('恢复失败：' + e.message);
+    toast('恢复失败：' + niceError(e));
   }
 }
 $('#gistToken').addEventListener('change', ()=>{ saveGistCfg(Object.assign({}, gistCfg, {token: $('#gistToken').value.trim()})); renderGistCard(); });
@@ -2197,10 +2220,17 @@ let _libLoading = null;
 function ensureExportLibs(){
   if(window.html2canvas && window.jspdf) return Promise.resolve();
   if(_libLoading) return _libLoading;
+  // 本地优先（安卓 App 的 assets/vendor 里有这两个库，离线也能导出），
+  // 网页版没有 vendor/ 目录，onerror 后自动回退 CDN
   _libLoading = Promise.all([
-    loadScript('https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'),
-    loadScript('https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'),
-  ]).then(()=>{ if(!window.html2canvas || !window.jspdf) throw new Error('导出组件加载失败'); });
+    loadScript('vendor/html2canvas.min.js','https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+    loadScript('vendor/jspdf.umd.min.js','https://cdn.bootcdn.net/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+  ]).then(()=>{
+    if(!window.html2canvas || !window.jspdf) throw new Error('导出组件加载失败');
+  }).catch(e=>{
+    _libLoading = null;   // 🔴 关键：失败的 Promise 不能缓存，否则网络恢复后也永远失败
+    throw e;
+  });
   return _libLoading;
 }
 async function exportImage(){
