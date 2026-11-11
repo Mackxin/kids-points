@@ -370,6 +370,19 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
   width:100%;padding:12px;border-radius:12px;font-size:14px;font-weight:700;
   background:var(--plus-bg);color:var(--plus);margin-top:8px;
 }
+
+/* ========== 云同步（GitHub Gist） ========== */
+.gist-form{display:flex;flex-direction:column;gap:8px}
+.gist-form input{
+  border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;
+  background:var(--card);color:var(--ink);width:100%;
+}
+.gist-btns{display:flex;gap:8px}
+.gist-btns .safe-btn{margin-top:0;padding:11px 8px;font-size:13px}
+.gist-status{font-size:12px;color:var(--sub);line-height:1.6}
+.gist-status b{color:var(--gold)}
+.gist-tip{font-size:11px;color:var(--sub);line-height:1.6;background:var(--bg);border-radius:9px;padding:8px 10px}
+.gist-tip code{font-family:ui-monospace,Menlo,monospace;font-size:10px;background:var(--gold-bg);color:var(--gold);border-radius:4px;padding:1px 4px}
 .name-input{
   border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;width:100%;
 }
@@ -747,6 +760,22 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
       <button class="safe-btn" onclick="document.getElementById('restoreFile').click()">📥 恢复数据（导入JSON文件）</button>
       <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restoreJSON(this)">
       <button class="danger-btn" onclick="resetAll()">🗑 清空所有数据（谨慎！）</button>
+    </div>
+    <div class="card">
+      <div class="card-title">☁️ 云同步 <span class="tag">存到 GitHub Gist，换手机也能找回</span></div>
+      <div class="gist-form">
+        <input type="password" id="gistToken" placeholder="GitHub Token（粘贴后点上传）" autocomplete="off" spellcheck="false">
+        <input type="text" id="gistId" placeholder="Gist ID（首次上传自动创建，不用手填）" autocomplete="off" spellcheck="false">
+        <div class="gist-btns">
+          <button class="safe-btn" onclick="gistUpload()">⬆️ 上传到云端</button>
+          <button class="safe-btn" onclick="gistDownload()">⬇️ 从云端恢复</button>
+        </div>
+        <div class="gist-status" id="gistStatus"></div>
+        <div class="gist-tip">
+          🔑 Token 只存在本机，不会写进备份文件。<br>
+          生成方法：GitHub → Settings → Developer settings → Personal access tokens → 勾选 <code>gist</code> → 复制 token 粘进来。
+        </div>
+      </div>
     </div>
     </div>
   </section>
@@ -1796,14 +1825,36 @@ function saveRecEdit(){
 $('#recEditModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeRecEdit(); });
 
 /* ================= 数据备份与恢复 ================= */
+// 保存文件：网页里用 a.download；安卓 App 里走原生桥写进系统「下载」目录
+// （WebView 不支持 blob 链接下载，导出/备份必须走桥）
+function saveFile(name, data){
+  const bridge = window.AndroidBridge;
+  if(bridge && bridge.saveBase64){
+    if(typeof data === 'string'){
+      const i = data.indexOf(',');
+      bridge.saveBase64(name, i>=0 ? data.slice(i+1) : data);
+      toast('📁 已保存到「下载」目录：' + name);
+    }else{
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result), i = s.indexOf(',');
+        bridge.saveBase64(name, i>=0 ? s.slice(i+1) : s);
+        toast('📁 已保存到「下载」目录：' + name);
+      };
+      r.readAsDataURL(data);
+    }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = (typeof data === 'string') ? data : URL.createObjectURL(data);
+  a.download = name;
+  a.click();
+  if(typeof data !== 'string') URL.revokeObjectURL(a.href);
+}
 function backupJSON(){
   const blob = new Blob([JSON.stringify(db,null,2)],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `积分备份-${dayKey(Date.now())}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('📤 备份文件已下载');
+  saveFile(`积分备份-${dayKey(Date.now())}.json`, blob);
+  if(!window.AndroidBridge) toast('📤 备份文件已下载');
 }
 function restoreJSON(input){
   const file = input.files[0];
@@ -1832,6 +1883,110 @@ function resetAll(){
   db = load(); save(); renderAll();
   toast('已清空，重新开始 🌱');
 }
+
+/* ================= 云同步（GitHub Gist） ================= */
+/* Token 和 Gist ID 单独存一个 key，绝不写进 db —— 这样导出的备份文件里不会带 token */
+const GIST_KEY = 'kids-points-gist';
+const GIST_FILE = 'kids-points.json';
+let gistCfg = (()=>{ try{ return JSON.parse(localStorage.getItem(GIST_KEY))||{}; }catch(e){ return {}; } })();
+function saveGistCfg(c){
+  gistCfg = c;
+  localStorage.setItem(GIST_KEY, JSON.stringify(c));
+}
+function renderGistCard(){
+  $('#gistToken').value = gistCfg.token || '';
+  $('#gistId').value    = gistCfg.gistId || '';
+  const box = $('#gistStatus');
+  if(!gistCfg.token){
+    box.innerHTML = '还没配置，<b>上传</b>后数据就会存到你自己的 Gist 里。';
+  }else if(gistCfg.lastSync){
+    box.innerHTML = '✅ 已连通 · 上次同步：<b>' + fmtTime(gistCfg.lastSync) + '</b>' +
+      (gistCfg.gistId ? '<br>Gist ID：' + gistCfg.gistId : '');
+  }else{
+    box.innerHTML = 'Token 已填，点<b>上传</b>开始同步。';
+  }
+}
+// 统一请求：401/403/404 给出人话提示
+async function ghApi(path, opt){
+  opt = opt || {};
+  const res = await fetch('https://api.github.com' + path, {
+    method: opt.method || 'GET',
+    headers: {
+      'Authorization': 'Bearer ' + (gistCfg.token || ''),
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    },
+    body: opt.body
+  });
+  if(!res.ok){
+    if(res.status === 401) throw new Error('Token 无效或已过期');
+    if(res.status === 403) throw new Error('权限不足或请求太频繁');
+    if(res.status === 404) throw new Error('Gist 不存在或无权访问');
+    throw new Error('请求失败（' + res.status + '）');
+  }
+  return res.json();
+}
+async function gistUpload(){
+  const token = $('#gistToken').value.trim();
+  if(!token) return toast('先粘贴 GitHub Token 哦');
+  if(!/^(ghp_|github_pat_)/.test(token)) return toast('Token 格式不对（应以 ghp_ 或 github_pat_ 开头）');
+  gistCfg.token = token;
+  const gid = $('#gistId').value.trim() || gistCfg.gistId || '';
+  const body = JSON.stringify({
+    description: '儿童积分银行数据（自动同步）',
+    public: false,
+    files: { [GIST_FILE]: { content: JSON.stringify(db, null, 2) } }
+  });
+  toast('正在上传…');
+  try{
+    const r = gid
+      ? await ghApi('/gists/' + gid, {method:'PATCH', body})
+      : await ghApi('/gists', {method:'POST', body});
+    saveGistCfg({ token, gistId: r.id, lastSync: Date.now() });
+    renderGistCard();
+    toast('☁️ 已上传到云端');
+  }catch(e){
+    saveGistCfg(Object.assign({}, gistCfg, {token}));   // token 先留着，免得白填
+    renderGistCard();
+    toast('上传失败：' + e.message);
+  }
+}
+async function gistDownload(){
+  const token = $('#gistToken').value.trim();
+  if(!token) return toast('先粘贴 GitHub Token 哦');
+  gistCfg.token = token;
+  const gid = $('#gistId').value.trim() || gistCfg.gistId || '';
+  if(!gid) return toast('还没有 Gist ID，先点一次「上传到云端」');
+  toast('正在从云端读取…');
+  try{
+    const r = await ghApi('/gists/' + gid);
+    const files = r.files || {};
+    const f = files[GIST_FILE] || Object.values(files)[0];
+    if(!f) throw new Error('Gist 里没有数据文件');
+    // 文件 >1MB 时 GitHub 不返回 content，用 raw_url 兜底
+    let text = f.content;
+    if(f.truncated || !text){
+      const rr = await fetch(f.raw_url);
+      text = await rr.text();
+    }
+    const norm = normalizeData(JSON.parse(text));
+    if(!norm) throw new Error('云端数据格式不对');
+    if(!confirm('从云端恢复会覆盖本机现有数据，确定继续吗？')) return;
+    db = norm;
+    ensureCodes(db);
+    uid = Math.max(uid, maxDataId(db));
+    save(); renderAll();
+    saveGistCfg({ token, gistId: gid, lastSync: Date.now() });
+    renderGistCard();
+    toast('☁️ 已从云端恢复');
+  }catch(e){
+    saveGistCfg(Object.assign({}, gistCfg, {token}));
+    renderGistCard();
+    toast('恢复失败：' + e.message);
+  }
+}
+$('#gistToken').addEventListener('change', ()=>{ saveGistCfg(Object.assign({}, gistCfg, {token: $('#gistToken').value.trim()})); renderGistCard(); });
+$('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gistCfg, {gistId: $('#gistId').value.trim()})); renderGistCard(); });
 
 /* ================= 导出图片 / PDF ================= */
 function buildReport(){
@@ -2056,13 +2211,10 @@ async function exportImage(){
   toast('正在生成图片…');
   try{
     const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
     // 文件名去重：范围已含具体日期（某天/今天/昨天/明天）就不再拼导出日期
     const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
-    a.download = `积分报告-${scope}${dayTag}.png`;
-    a.click();
-    toast('🖼 图片已导出');
+    saveFile(`积分报告-${scope}${dayTag}.png`, canvas.toDataURL('image/png'));
+    if(!window.AndroidBridge) toast('🖼 图片已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
   reportDateFilter = {y:null, m:null, d:null};
@@ -2081,8 +2233,8 @@ async function exportPDF(){
     const pw = 210, ph = canvas.height * pw / canvas.width;
     pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
     const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
-    pdf.save(`积分报告-${scope}${dayTag}.pdf`);
-    toast('📄 PDF已导出');
+    saveFile(`积分报告-${scope}${dayTag}.pdf`, pdf.output('blob'));
+    if(!window.AndroidBridge) toast('📄 PDF已导出');
   }catch(e){ toast('生成失败，请重试'); }
   reportMode = 'auto';
   reportDateFilter = {y:null, m:null, d:null};
@@ -2119,6 +2271,7 @@ function runExport(mode){
 function renderAll(){
   renderRecordDateBar();
   renderBatchUI();
+  renderGistCard();
   renderKidsBar();
   $('#quoteStrip').innerHTML = '💡 今日寄语：<b>' + dailyQuote() + '</b>';
   renderBalance();

@@ -1,0 +1,40 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'xyz.yihaozhan.kidspoints'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "xyz.yihaozhan.kidspoints"
+        minSdk 29        // Android 10+：用 MediaStore 直接写「下载」目录，无需存储权限
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // 用 debug 签名，自己装/发给家人都能直接安装
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    // 关掉无用的 lint 阻塞
+    lint {
+        abortOnError false
+    }
+}
+
+// 唯一源文件在项目根目录的 index.html，构建前自动同步进 assets，
+// 避免出现「改了一份、App 里还是旧的」两份代码不同步的问题
+tasks.register('syncWebAssets', Copy) {
+    from rootProject.file('../index.html')
+    into 'src/main/assets'
+}
+preBuild.dependsOn 'syncWebAssets'

@@ -1,0 +1,12 @@
+# ---- Android 构建产物 ----
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# 页面文件由 Gradle 从项目根目录 index.html 自动拷入，不纳入版本管理（避免两份不同步）
+android/app/src/main/assets/index.html
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+*.log
