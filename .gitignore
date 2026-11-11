@@ -10,3 +10,6 @@ android/app/src/main/assets/index.html
 # ---- 系统 / 编辑器 ----
 .DS_Store
 *.log
+
+# 工作日志（含家庭信息，不纳入仓库）
+.workbuddy/
