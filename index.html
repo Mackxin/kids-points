@@ -33,14 +33,14 @@ body{
 button{font-family:inherit;cursor:pointer;border:none;background:none}
 input,select{font-family:inherit;outline:none}
 
-/* ========== 顶部区域（透明，融入页面底色） ========== */
+/* ========== 顶部标题区（透明，融入页面底色） ========== */
 .header{
   background:transparent;color:var(--ink);
-  padding:20px 18px 6px;
+  padding:calc(16px + env(safe-area-inset-top)) 16px 4px;
 }
-.header-top{display:flex;justify-content:space-between;align-items:flex-start;max-width:1280px;margin:0 auto}
-.header h1{font-size:19px;font-weight:800;letter-spacing:.5px}
-.header .subtitle{font-size:12px;color:var(--sub);margin-top:3px}
+.header-top{display:flex;justify-content:space-between;align-items:center;max-width:1280px;margin:0 auto;gap:12px}
+.header h1{font-size:22px;font-weight:800;letter-spacing:-.3px;line-height:1.25}
+.header .subtitle{font-size:12px;color:var(--sub);margin-top:2px}
 .export-btns{display:flex;gap:8px}
 .export-btns button{
   background:var(--bg);color:var(--ink);font-size:12px;
@@ -48,47 +48,65 @@ input,select{font-family:inherit;outline:none}
   transition:background .2s;white-space:nowrap;flex-shrink:0;border:1px solid var(--line);
 }
 .export-btns button:active{background:var(--line)}
-/* 小屏：顶栏收紧防换行 */
+/* 小屏：标题略收 */
 @media(max-width:480px){
-  .header h1{font-size:16px}
-  .export-btns button{padding:6px 9px;font-size:11px}
+  .header h1{font-size:20px}
 }
 
-/* 积分余额卡：压在头部渐变和内容之间 */
+/* ========== 积分余额卡：蓝色 hero 卡（App 首屏的「主视觉」） ========== */
 .balance-card{
-  width:min(1280px, calc(100% - 28px));
-  margin:0 auto;background:var(--card);border-radius:var(--radius);
-  padding:18px;box-shadow:0 8px 24px rgba(30,40,60,.07);
+  width:min(1280px, calc(100% - 24px));
+  margin:0 auto;border-radius:20px;
+  padding:18px 20px;
+  background:linear-gradient(135deg,#6489f5 0%,#3b6fe0 58%,#2f5fd0 100%);
+  color:#fff;
+  box-shadow:0 12px 26px -10px rgba(59,111,224,.65);
   display:flex;justify-content:space-between;align-items:center;
+  position:relative;overflow:hidden;
 }
-.balance-main .label{font-size:12px;color:var(--sub)}
-.balance-main .num{font-size:38px;font-weight:800;color:var(--ink);line-height:1.15}
-.balance-main .num small{font-size:15px;font-weight:600;color:var(--sub)}
-.balance-side{text-align:right;font-size:12px;color:var(--sub);line-height:1.9}
-.balance-side b{color:var(--plus);font-size:15px}
-.balance-side b.minus{color:var(--minus)}
+/* 右上角柔光装饰，让扁平色块有层次 */
+.balance-card::after{
+  content:'';position:absolute;right:-46px;top:-70px;width:170px;height:170px;border-radius:50%;
+  background:rgba(255,255,255,.12);pointer-events:none;
+}
+.balance-main,.balance-side{position:relative;z-index:1}
+.balance-main .label{font-size:12px;color:rgba(255,255,255,.85)}
+.balance-main .num{font-size:40px;font-weight:800;color:#fff;line-height:1.1;letter-spacing:-1.2px}
+.balance-main .num small{font-size:14px;font-weight:600;color:rgba(255,255,255,.7);letter-spacing:0}
+.balance-side{text-align:right;font-size:11.5px;color:rgba(255,255,255,.75);line-height:1.95}
+.balance-side b{color:#b6f2cf;font-size:15px;font-weight:700}
+.balance-side b.minus{color:#ffd3cd}
 
-/* ========== 底部导航：居中浮起窄药丸条 ========== */
+/* ========== 底部导航：贴底满宽、纯文字、顶部指示条（原生 App 观感） ========== */
 nav{
-  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:50;
-  width:auto;max-width:calc(100% - 32px);
-  background:var(--card);display:flex;
-  border:1px solid var(--line);
-  border-radius:20px;
-  box-shadow:0 8px 24px rgba(30,40,60,.13);
-  padding:6px;
-  padding-bottom:calc(6px + env(safe-area-inset-bottom));
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  display:flex;align-items:stretch;
+  background:rgba(255,255,255,.94);
+  -webkit-backdrop-filter:saturate(180%) blur(14px);
+  backdrop-filter:saturate(180%) blur(14px);
+  border-top:1px solid var(--line);
+  box-shadow:0 -1px 0 rgba(47,53,66,.03);
+  padding-bottom:env(safe-area-inset-bottom);
 }
 nav button{
-  flex:1 1 0;padding:9px 14px 10px;min-width:60px;display:flex;flex-direction:column;align-items:center;gap:3px;
-  font-size:11px;color:var(--sub);border-radius:14px;
-  transition:color .2s,background .2s;
+  flex:1 1 0;position:relative;height:46px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13.5px;letter-spacing:.6px;color:var(--sub);
+  transition:color .18s;
 }
-nav button .ico{font-size:21px;line-height:1}
-nav button.active{color:#fff;font-weight:700;background:var(--accent)}
+/* 选中态：顶部一小段圆角指示条 + 文字变主色加粗（不用底色块，更轻） */
+nav button::before{
+  content:'';position:absolute;top:0;left:50%;
+  width:20px;height:2.5px;border-radius:0 0 3px 3px;background:var(--accent);
+  transform:translateX(-50%) scaleX(0);transform-origin:center;
+  transition:transform .22s cubic-bezier(.4,0,.2,1);
+}
+nav button.active{color:var(--accent);font-weight:700}
+nav button.active::before{transform:translateX(-50%) scaleX(1)}
 
 /* ========== 主内容区 ========== */
-main{padding:14px 14px 90px;max-width:1280px;margin:0 auto}
+/* 底部留白 = 导航高 46 + 安全区 + 一点点呼吸，避免最后一张卡被遮住 */
+main{padding:12px 12px calc(64px + env(safe-area-inset-bottom));max-width:1280px;margin:0 auto}
 .pages{position:relative}   /* 滑动切页时旧页 absolute 的定位上下文 */
 
 /* 桌面端：记分页左右两栏 */
@@ -370,6 +388,39 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
   width:100%;padding:12px;border-radius:12px;font-size:14px;font-weight:700;
   background:var(--plus-bg);color:var(--plus);margin-top:8px;
 }
+/* 导出图片 / 导出 PDF 并排两个半宽按钮 */
+.export-row{display:flex;gap:8px}
+.export-row .safe-btn{margin-top:8px;flex:1 1 0}
+
+/* ========== 版本更新（设置页） ========== */
+.update-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.update-ver{font-size:13px;color:var(--sub)}
+.update-ver b{color:var(--ink);font-weight:700;font-size:14px}
+.update-btn{
+  width:auto;flex-shrink:0;padding:9px 16px;border-radius:11px;margin-top:0;
+  font-size:13px;font-weight:700;background:var(--gold-bg);color:var(--accent);
+  transition:opacity .2s;
+}
+.update-btn:disabled{opacity:.55}
+.update-btn.pri{background:var(--accent);color:#fff}
+.update-status{font-size:12px;color:var(--sub);line-height:1.7;margin-top:9px}
+.update-status:empty{display:none}
+.update-status b{color:var(--accent)}
+.update-status .up-new{color:var(--plus);font-weight:700}
+.update-status .up-err{color:var(--minus)}
+.update-bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:9px;display:none}
+.update-bar.on{display:block}
+.update-bar i{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);transition:width .25s}
+.update-notes{
+  margin-top:9px;background:var(--bg);border-radius:10px;padding:9px 11px;
+  font-size:12px;line-height:1.7;color:var(--ink);white-space:pre-wrap;
+  max-height:150px;overflow:auto;
+}
+/* 设置页 tab 上的小红点：有新版本时提示 */
+nav button.has-new::after{
+  content:'';position:absolute;top:12px;left:50%;transform:translateX(22px);
+  width:6px;height:6px;border-radius:50%;background:var(--minus);
+}
 
 /* ========== 云同步（GitHub Gist） ========== */
 .gist-form{display:flex;flex-direction:column;gap:8px}
@@ -580,12 +631,8 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
 <header class="header">
   <div class="header-top">
     <div>
-      <h1>⭐ <span id="appTitle">儿童积分银行</span></h1>
+      <h1><span id="appTitle">儿童积分银行</span></h1>
       <div class="subtitle">好习惯 · 每天存一点</div>
-    </div>
-    <div class="export-btns">
-      <button onclick="askExport('image')">🖼 导出图片</button>
-      <button onclick="askExport('pdf')">📄 导出PDF</button>
     </div>
   </div>
 </header>
@@ -756,6 +803,10 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
     </div>
     <div class="card">
       <div class="card-title">💾 数据管理</div>
+      <div class="export-row">
+        <button class="safe-btn" onclick="askExport('image')">🖼 导出图片</button>
+        <button class="safe-btn" onclick="askExport('pdf')">📄 导出 PDF</button>
+      </div>
       <button class="safe-btn" onclick="backupJSON()">📤 备份数据（导出JSON文件）</button>
       <button class="safe-btn" onclick="document.getElementById('restoreFile').click()">📥 恢复数据（导入JSON文件）</button>
       <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restoreJSON(this)">
@@ -777,17 +828,27 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
         </div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-title">🔄 版本更新 <span class="tag">更新来自 GitHub Release</span></div>
+      <div class="update-head">
+        <div class="update-ver">当前版本 <b id="curVersion">—</b></div>
+        <button class="update-btn" id="updateBtn" onclick="onUpdateBtn()">检查更新</button>
+      </div>
+      <div class="update-status" id="updateStatus"></div>
+      <div class="update-bar" id="updateBar"><i></i></div>
+      <div class="update-notes" id="updateNotes" style="display:none"></div>
+    </div>
     </div>
   </section>
   </div><!-- /.pages -->
 </main>
 
-<!-- ===== 底部导航 ===== -->
+<!-- ===== 底部导航（纯文字，无图标） ===== -->
 <nav>
-  <button class="active" data-tab="record" onclick="switchTab('record',this)"><span class="ico">📝</span>记分</button>
-  <button data-tab="history" onclick="switchTab('history',this)"><span class="ico">📊</span>明细</button>
-  <button data-tab="exchange" onclick="switchTab('exchange',this)"><span class="ico">🎁</span>兑换</button>
-  <button data-tab="settings" onclick="switchTab('settings',this)"><span class="ico">⚙️</span>设置</button>
+  <button class="active" data-tab="record" onclick="switchTab('record',this)">记分</button>
+  <button data-tab="history" onclick="switchTab('history',this)">明细</button>
+  <button data-tab="exchange" onclick="switchTab('exchange',this)">兑换</button>
+  <button data-tab="settings" onclick="switchTab('settings',this)">设置</button>
 </nav>
 
 <!-- 编辑项目弹窗 -->
@@ -2011,6 +2072,212 @@ async function gistDownload(){
 $('#gistToken').addEventListener('change', ()=>{ saveGistCfg(Object.assign({}, gistCfg, {token: $('#gistToken').value.trim()})); renderGistCard(); });
 $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gistCfg, {gistId: $('#gistId').value.trim()})); renderGistCard(); });
 
+/* ================= 版本更新（源：GitHub Release） ================= */
+/* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
+   → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
+const UPDATE_REPO   = 'Mackxin/kids-points';
+const APP_VERSION   = '1.2.0';          // 网页版兜底版本号；App 内优先读原生 versionName
+const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
+const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
+
+let curVersion = APP_VERSION;
+let updateState = { phase:'idle', latest:'', notes:'', url:'', size:0, pct:0, err:'' };
+
+// App 内读原生 versionName（和 settings.gradle 里的版本保持一致），网页版用常量
+curVersion = (function(){
+  const b = window.AndroidBridge;
+  try{
+    if(b && typeof b.getVersionName === 'function'){
+      const v = b.getVersionName();
+      if(v && /^\d/.test(v)) return String(v).trim();
+    }
+  }catch(e){}
+  return APP_VERSION;
+})();
+
+// 1.2.0 vs v1.2.1 → 返回正数表示 a 更新
+function cmpVer(a, b){
+  const pa = String(a||'').replace(/^v/i,'').split(/[.\-+]/);
+  const pb = String(b||'').replace(/^v/i,'').split(/[.\-+]/);
+  for(let i=0;i<Math.max(pa.length,pb.length);i++){
+    const x = parseInt(pa[i],10), y = parseInt(pb[i],10);
+    if(isNaN(x) && isNaN(y)) continue;
+    const nx = isNaN(x)?0:x, ny = isNaN(y)?0:y;
+    if(nx !== ny) return nx - ny;
+  }
+  return 0;
+}
+
+function setUpdateBtn(text, disabled, primary){
+  const b = $('#updateBtn');
+  if(!b) return;
+  b.textContent = text;
+  b.disabled = !!disabled;
+  b.classList.toggle('pri', !!primary);
+}
+
+function renderUpdateCard(){
+  const cv = $('#curVersion');
+  if(cv) cv.textContent = 'v' + curVersion;
+  const st = $('#updateStatus'), bar = $('#updateBar'), notes = $('#updateNotes');
+  if(!st) return;
+  const s = updateState;
+
+  if(notes){
+    if(s.notes && (s.phase === 'available' || s.phase === 'downloading')){
+      notes.style.display = 'block';
+      notes.textContent = s.notes.length > 600 ? s.notes.slice(0,600) + '…' : s.notes;
+    }else{
+      notes.style.display = 'none';
+    }
+  }
+  if(bar){
+    bar.classList.toggle('on', s.phase === 'downloading');
+    const i = bar.querySelector('i');
+    if(i) i.style.width = (s.pct || 0) + '%';
+  }
+
+  if(s.phase === 'checking'){
+    st.innerHTML = '正在检查…';
+    setUpdateBtn('检查中…', true, false);
+  }else if(s.phase === 'available'){
+    st.innerHTML = '🎉 发现新版本 <b class="up-new">v' + s.latest + '</b>' +
+      (s.size ? '（' + (s.size/1048576).toFixed(1) + 'MB）' : '') + '，点右边下载安装';
+    setUpdateBtn('⬇️ 下载安装', false, true);
+  }else if(s.phase === 'downloading'){
+    st.innerHTML = '正在下载 <b>' + (s.pct||0) + '%</b>，下载完会自动弹出安装';
+    setUpdateBtn('下载中…', true, false);
+  }else if(s.phase === 'latest'){
+    st.innerHTML = '✅ 已是最新版本' + (s.latest ? '（线上 v' + s.latest + '）' : '');
+    setUpdateBtn('重新检查', false, false);
+  }else if(s.phase === 'noupdate'){
+    st.innerHTML = '当前不是 App 版，无法在线安装';
+    setUpdateBtn('检查更新', false, false);
+  }else if(s.phase === 'error'){
+    st.innerHTML = '<span class="up-err">检查失败：' + s.err + '</span>';
+    setUpdateBtn('重试', false, false);
+  }else{
+    st.innerHTML = '';
+    setUpdateBtn('检查更新', false, false);
+  }
+
+  // 有新版本时给「设置」tab 点个小红点
+  const setBtn = document.querySelector('nav button[data-tab="settings"]');
+  if(setBtn) setBtn.classList.toggle('has-new', s.phase === 'available');
+}
+
+function saveUpdateCache(){
+  try{
+    localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify({
+      at: Date.now(), latest: updateState.latest,
+      phase: updateState.phase === 'available' ? 'available' : 'latest'
+    }));
+  }catch(e){}
+}
+
+async function checkUpdate(manual){
+  if(updateState.phase === 'checking' || updateState.phase === 'downloading') return;
+  updateState.phase = 'checking'; updateState.err = '';
+  renderUpdateCard();
+  try{
+    const res = await fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', {
+      headers: { 'Accept': 'application/vnd.github+json' },
+      cache: 'no-store'
+    });
+    if(res.status === 404) throw new Error('仓库还没有发布 Release');
+    if(res.status === 403) throw new Error('查询太频繁，过一会儿再试');
+    if(!res.ok) throw new Error('GitHub 返回 ' + res.status);
+
+    const rel  = await res.json();
+    const late = String(rel.tag_name || '').replace(/^v/i, '').trim();
+    const apk  = (rel.assets || []).find(a => /\.apk$/i.test(a.name || ''));
+
+    updateState.latest = late;
+    updateState.notes  = String(rel.body || '').trim();
+    updateState.url    = apk ? apk.browser_download_url : '';
+    updateState.size   = apk ? (apk.size || 0) : 0;
+
+    if(!late){
+      updateState.phase = 'error'; updateState.err = 'Release 没有版本号';
+    }else if(cmpVer(late, curVersion) > 0){
+      if(!apk){
+        updateState.phase = 'error';
+        updateState.err = 'v' + late + ' 已发布，但没上传 APK';
+      }else{
+        updateState.phase = 'available';
+      }
+    }else{
+      updateState.phase = 'latest';
+    }
+    saveUpdateCache();
+  }catch(e){
+    updateState.phase = 'error';
+    updateState.err = niceError(e);
+  }
+  renderUpdateCard();
+  if(manual){
+    if(updateState.phase === 'latest') toast('已是最新版本 ✅');
+    if(updateState.phase === 'error')  toast('检查失败：' + updateState.err);
+  }
+}
+
+// 一张按钮走完全流程：检查 → 下载安装
+function onUpdateBtn(){
+  if(updateState.phase === 'available') return startUpdateDownload();
+  return checkUpdate(true);
+}
+
+function startUpdateDownload(){
+  if(!updateState.url) return toast('没找到 APK 下载地址');
+  const bridge = window.AndroidBridge;
+  if(!(bridge && typeof bridge.downloadAndInstall === 'function')){
+    // 浏览器里跑：直接开下载链接，装完自己回来
+    window.open(updateState.url, '_blank');
+    return toast('已开始下载，装好新版再打开就行 ✅');
+  }
+  updateState.phase = 'downloading'; updateState.pct = 0;
+  renderUpdateCard();
+  let err = '';
+  try{ err = bridge.downloadAndInstall(updateState.url, 'kids-points-v' + updateState.latest + '.apk') || ''; }
+  catch(e){ err = '调用下载失败'; }
+  if(err){
+    updateState.phase = 'available'; updateState.err = err;
+    renderUpdateCard();
+    toast(err);
+  }
+}
+
+// 原生下载进度回调（Java 侧 evaluateJavascript 调用）
+window.__onUpdateProgress = function(pct){
+  if(updateState.phase !== 'downloading') return;
+  updateState.pct = Math.max(0, Math.min(100, parseInt(pct, 10) || 0));
+  const bar = $('#updateBar');
+  if(bar){ bar.classList.add('on'); const i = bar.querySelector('i'); if(i) i.style.width = updateState.pct + '%'; }
+  const st = $('#updateStatus');
+  if(st) st.innerHTML = '正在下载 <b>' + updateState.pct + '%</b>，下载完会自动弹出安装';
+};
+window.__onUpdateDone = function(ok, msg){
+  if(ok){
+    updateState.phase = 'latest'; updateState.pct = 100; updateState.latest = '';
+    renderUpdateCard();
+    toast('下载完成，正在安装…');
+  }else{
+    updateState.phase = 'available';
+    updateState.pct = 0;
+    renderUpdateCard();
+    toast('下载失败：' + (msg || '未知错误'));
+  }
+};
+
+// 打开页面静默检查一次（6 小时内不重复请求），有新版才在 tab 上点红点
+function maybeAutoCheckUpdate(){
+  try{
+    const c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY) || 'null');
+    if(c && c.at && Date.now() - c.at < UPDATE_AUTO_MS) return;
+  }catch(e){}
+  checkUpdate(false);
+}
+
 /* ================= 导出图片 / PDF ================= */
 function buildReport(){
   // 组装一份"积分报告"HTML，渲染到隐藏节点，再用 html2canvas 截图
@@ -2312,9 +2579,13 @@ function renderAll(){
   renderRecords();
   renderExchange();
   renderSettings();
+  renderUpdateCard();
   if(C().name) $('#appTitle').textContent = C().name+'的积分银行';
 }
 renderAll();
+
+// 打开页面 1.5 秒后静默查一次更新（6 小时内只请求一次），有新版才在「设置」tab 点红点
+setTimeout(maybeAutoCheckUpdate, 1500);
 </script>
 </body>
 </html>

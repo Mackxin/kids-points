@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Base64;
 import android.view.KeyEvent;
 import android.view.View;
@@ -27,8 +28,12 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
  * 纯 WebView 壳：页面本体是 assets/index.html（由 Gradle 从项目根目录自动同步）。
@@ -54,8 +59,9 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         Window w = getWindow();
-        w.setStatusBarColor(Color.parseColor("#F2F4F8"));
-        w.setNavigationBarColor(Color.parseColor("#F2F4F8"));
+        // 与页面 --bg 保持一致，状态栏/导航栏不会出现一条色差
+        w.setStatusBarColor(Color.parseColor("#F3F4F6"));
+        w.setNavigationBarColor(Color.parseColor("#F3F4F6"));
         w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
 
         web = new WebView(this);
@@ -68,12 +74,12 @@ public class MainActivity extends Activity {
         loading.setTextColor(Color.parseColor("#8A93A6"));
         loading.setTextSize(15);
         loading.setGravity(android.view.Gravity.CENTER);
-        loading.setBackgroundColor(Color.parseColor("#F2F4F8"));
+        loading.setBackgroundColor(Color.parseColor("#F3F4F6"));
         loading.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#F2F4F8"));
+        root.setBackgroundColor(Color.parseColor("#F3F4F6"));
         root.addView(web);
         root.addView(loading);
         setContentView(root);
@@ -230,6 +236,144 @@ public class MainActivity extends Activity {
                 return e.getMessage() == null ? "写入失败" : e.getMessage();
             }
         }
+
+        /** 页面据此显示「当前版本 vX.Y.Z」 */
+        @JavascriptInterface
+        public String getVersionName() {
+            try {
+                return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        /** 下载 GitHub Release 里的 APK 并拉起系统安装器。
+         *  返回 null = 已开始下载（进度/结果通过 __onUpdateProgress / __onUpdateDone 回传）
+         *  返回字符串 = 立即失败的原因 */
+        @JavascriptInterface
+        public String downloadAndInstall(final String url, final String fileName) {
+            if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) {
+                return "下载地址不对";
+            }
+            // Android 8+ 装外部 APK 必须先授予「安装未知应用」；没有就先跳设置页
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (Exception ignored) { }
+                });
+                return "请先允许「安装未知应用」，允许后再点一次下载";
+            }
+
+            final String name = safeApkName(fileName);
+            final File dir = new File(getCacheDir(), ApkProvider.DIR);
+            if (!dir.exists() && !dir.mkdirs()) return "无法创建下载目录";
+            // 清掉上一版残留，避免多个 APK 堆在缓存里
+            File[] olds = dir.listFiles();
+            if (olds != null) {
+                for (File o : olds) {
+                    if (o.isFile()) o.delete();
+                }
+            }
+            final File out = new File(dir, name);
+
+            new Thread(() -> {
+                HttpURLConnection conn = null;
+                try {
+                    // GitHub 的 browser_download_url 会 302 到 objects.githubusercontent.com，
+                    // 跨域名手动跟几次（不依赖 setInstanceFollowRedirects 的协议限制）
+                    String cur = url;
+                    for (int hop = 0; hop < 6; hop++) {
+                        conn = (HttpURLConnection) new URL(cur).openConnection();
+                        conn.setConnectTimeout(20000);
+                        conn.setReadTimeout(30000);
+                        conn.setRequestProperty("User-Agent", "kids-points-app");
+                        conn.setInstanceFollowRedirects(false);
+                        int code = conn.getResponseCode();
+                        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                            String loc = conn.getHeaderField("Location");
+                            conn.disconnect();
+                            conn = null;
+                            if (loc == null) throw new Exception("跳转地址缺失");
+                            cur = loc.startsWith("http") ? loc : new URL(new URL(cur), loc).toString();
+                            continue;
+                        }
+                        if (code != 200) throw new Exception("服务器返回 " + code);
+                        break;
+                    }
+                    if (conn == null) throw new Exception("跳转次数太多");
+
+                    long total = -1;
+                    String len = conn.getHeaderField("Content-Length");
+                    if (len != null) {
+                        try { total = Long.parseLong(len.trim()); } catch (Exception ignored) { }
+                    }
+
+                    long done = 0;
+                    int lastPct = -1;
+                    byte[] buf = new byte[16 * 1024];
+                    try (InputStream is = conn.getInputStream();
+                         FileOutputStream os = new FileOutputStream(out)) {
+                        int n;
+                        while ((n = is.read(buf)) > 0) {
+                            os.write(buf, 0, n);
+                            done += n;
+                            if (total > 0) {
+                                int pct = (int) (done * 100 / total);
+                                if (pct != lastPct) {          // 只在百分比变化时回传，别把 JS 刷爆
+                                    lastPct = pct;
+                                    emitJs("window.__onUpdateProgress&&window.__onUpdateProgress(" + pct + ")");
+                                }
+                            }
+                        }
+                        os.flush();
+                    }
+                    if (out.length() < 1024) throw new Exception("下载内容不完整");
+
+                    emitJs("window.__onUpdateDone&&window.__onUpdateDone(true,'')");
+                    installApk(out);
+                } catch (Exception e) {
+                    if (out.exists()) out.delete();
+                    String msg = e.getMessage() == null ? "下载失败" : e.getMessage();
+                    emitJs("window.__onUpdateDone&&window.__onUpdateDone(false,'"
+                            + msg.replace("\\", "").replace("'", "") + "')");
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            }, "apk-download").start();
+            return null;
+        }
+    }
+
+    /** 文件名只留安全字符，防止拼出 ../ 之类越界路径 */
+    private static String safeApkName(String name) {
+        String n = (name == null || name.trim().isEmpty()) ? "kids-points-update.apk" : name.trim();
+        n = n.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (!n.toLowerCase().endsWith(".apk")) n = n + ".apk";
+        return n;
+    }
+
+    /** 在 UI 线程把一段 JS 丢给页面（进度、完成回调都走这里） */
+    private void emitJs(final String js) {
+        runOnUiThread(() -> {
+            if (web != null) web.evaluateJavascript(js, null);
+        });
+    }
+
+    /** 用系统安装器打开缓存里的 APK：content:// + 临时读授权 */
+    private void installApk(final File apk) {
+        runOnUiThread(() -> {
+            try {
+                Uri uri = ApkProvider.uriFor(apk.getName());
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(uri, "application/vnd.android.package-archive");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception e) {
+                toastOnUi("打开安装器失败，请手动到「下载」目录安装");
+            }
+        });
     }
 
     private void toastOnUi(final String msg) {
