@@ -371,7 +371,8 @@ html.dragging-x,html.dragging-x *{user-select:none;cursor:grabbing}
   padding:10px 4px;border-bottom:1px solid var(--line);
 }
 .setting-row:last-child{border-bottom:none}
-.setting-row .name{flex:1;font-size:14px}
+/* min-width:0 才能让 flex 子项真正被压缩（默认 min-width:auto 会撑到内容宽度，窄屏直接溢出/换行） */
+.setting-row .name{flex:1;font-size:14px;min-width:0}
 .setting-row .pts{font-size:13px;font-weight:800;color:var(--plus);flex-shrink:0}
 .setting-row .pts.minus{color:var(--minus)}
 .setting-row .pts.cost{color:var(--purple)}
@@ -525,8 +526,25 @@ nav button.has-new::after{
 /* ========== 设置页宝宝管理 ========== */
 .setting-row.cur-kid{background:var(--gold-bg);border-radius:10px;padding-left:8px;padding-right:8px}
 .cur-badge{
-  font-size:10px;color:#fff;background:var(--gold);
-  border-radius:8px;padding:1px 7px;margin-left:6px;font-weight:600;
+  font-size:9.5px;color:#fff;background:var(--gold);
+  border-radius:7px;padding:1px 5px;margin-left:5px;font-weight:600;
+  line-height:1.5;
+}
+/* 宝宝行：一行里塞了「头像+名字+当前徽标 / 性别 / 分数 / 改 / 删」，
+   窄屏或名字长时原来会把「当前」挤到第二行。现在名字单独放进 .kid-name，
+   放不下就自己省略号，徽标和右边那些控件一律不许换行、不许压缩。 */
+.setting-row.kid-row{gap:8px}
+.setting-row.kid-row .name{display:flex;align-items:center;min-width:0}
+.setting-row.kid-row .kid-name{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.setting-row.kid-row .cur-badge{flex-shrink:0}
+/* 更窄的屏幕（≤360）再收紧一圈，把省下来的宽度都留给名字 */
+@media(max-width:360px){
+  .setting-row.kid-row{gap:5px}
+  .setting-row.kid-row .gender-sel{padding:5px 2px;font-size:11.5px;border-width:1px}
+  .setting-row.kid-row .mini-btn{width:24px;height:24px;border-radius:8px;font-size:12px}
+  .setting-row.kid-row .pts{font-size:12px}
 }
 
 /* 桌面端：明细页全宽从上到下排（统计行→图表→记录明细），避免左短右长两栏下面一大块空白 */
@@ -1770,10 +1788,9 @@ const KID_EMOJI = ['🧒','👦','👧','🐣','🐰','🐱','🦊','🐼'];   /
 function renderSettings(){
   // 宝宝管理列表
   $('#kidsManage').innerHTML = db.children.map((k,i)=>`
-    <div class="setting-row ${k.id===db.cur?'cur-kid':''}">
+    <div class="setting-row kid-row ${k.id===db.cur?'cur-kid':''}">
       <div class="name" onclick="switchChild(${k.id})" style="cursor:pointer">
-        ${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}
-        ${k.id===db.cur?'<span class="cur-badge">当前</span>':''}
+        <span class="kid-name">${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}</span>${k.id===db.cur?'<span class="cur-badge">当前</span>':''}
       </div>
       <select class="gender-sel" onchange="setKidGender(${k.id},this.value)">
         <option value="son" ${k.gender==='son'?'selected':''}>儿子</option>
@@ -2178,7 +2195,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.2';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.3';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 
