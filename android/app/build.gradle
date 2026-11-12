@@ -8,8 +8,8 @@ android {
         applicationId "xyz.yihaozhan.kidspoints"
         minSdk 29        // Android 10+：用 MediaStore 直接写「下载」目录，无需存储权限
         targetSdk 34
-        versionCode 2
-        versionName "1.2.0"     // 发新版时这里和 index.html 的 APP_VERSION 一起改，再打 tag
+        versionCode 3
+        versionName "1.2.1"     // 发新版时这里和 index.html 的 APP_VERSION 一起改，再打 tag
     }
 
     compileOptions {

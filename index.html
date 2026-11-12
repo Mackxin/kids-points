@@ -53,7 +53,15 @@ input,select{font-family:inherit;outline:none}
   .header h1{font-size:20px}
 }
 
-/* ========== 积分余额卡：蓝色 hero 卡（App 首屏的「主视觉」） ========== */
+/* ========== 积分余额卡：蓝色 hero 卡 + 置顶吸附 ========== */
+/* 外层负责 sticky 置顶 + 整屏宽底色（滚动时遮住从左右 12px 缝隙穿过的内容）。
+   注意：这里不要再加 box-shadow —— 它 z-index 高于下面的宝宝条，阴影会盖在宝宝条上；
+   吸附时与内容的层次交给宝宝条那条 -8px 的淡阴影即可。 */
+.hero-wrap{
+  position:sticky;top:0;z-index:45;
+  background:var(--bg);
+  padding:2px 0;
+}
 .balance-card{
   width:min(1280px, calc(100% - 24px));
   margin:0 auto;border-radius:20px;
@@ -77,7 +85,7 @@ input,select{font-family:inherit;outline:none}
 .balance-side b{color:#b6f2cf;font-size:15px;font-weight:700}
 .balance-side b.minus{color:#ffd3cd}
 
-/* ========== 底部导航：贴底满宽、纯文字、顶部指示条（原生 App 观感） ========== */
+/* ========== 底部导航：贴底满宽、纯文字（原生 App 观感） ========== */
 nav{
   position:fixed;left:0;right:0;bottom:0;z-index:50;
   display:flex;align-items:stretch;
@@ -94,15 +102,8 @@ nav button{
   font-size:13.5px;letter-spacing:.6px;color:var(--sub);
   transition:color .18s;
 }
-/* 选中态：顶部一小段圆角指示条 + 文字变主色加粗（不用底色块，更轻） */
-nav button::before{
-  content:'';position:absolute;top:0;left:50%;
-  width:20px;height:2.5px;border-radius:0 0 3px 3px;background:var(--accent);
-  transform:translateX(-50%) scaleX(0);transform-origin:center;
-  transition:transform .22s cubic-bezier(.4,0,.2,1);
-}
-nav button.active{color:var(--accent);font-weight:700}
-nav button.active::before{transform:translateX(-50%) scaleX(1)}
+/* 选中态只用文字表达：主色 + 加粗 + 字号微调，不加指示条也不加底色块 */
+nav button.active{color:var(--accent);font-weight:700;font-size:14px}
 
 /* ========== 主内容区 ========== */
 /* 底部留白 = 导航高 46 + 安全区 + 一点点呼吸，避免最后一张卡被遮住 */
@@ -135,6 +136,17 @@ main{padding:12px 12px calc(64px + env(safe-area-inset-bottom));max-width:1280px
 .tab-page.active{display:block;animation:fadein .25s}
 /* 切页淡入：只动透明度——绝不能带 transform，否则运行中的动画会覆盖滑动拖动的内联 transform（打开页面 250ms 内拖不动） */
 @keyframes fadein{from{opacity:0}to{opacity:1}}
+/* 点底部 tab 切页：按左右方向做一次「滑进来」。
+   只在 switchTab 里临时挂类，animationend 立刻摘掉——
+   常驻 transform 动画会覆盖手势拖动的内联 transform，这条红线不能破。 */
+.tab-page.slide-r{animation:slideInR .26s cubic-bezier(.22,.61,.36,1)}
+.tab-page.slide-l{animation:slideInL .26s cubic-bezier(.22,.61,.36,1)}
+@keyframes slideInR{from{opacity:0;transform:translateX(36px)} to{opacity:1;transform:translateX(0)}}
+@keyframes slideInL{from{opacity:0;transform:translateX(-36px)} to{opacity:1;transform:translateX(0)}}
+/* 尊重系统「减弱动态效果」：直接不走位移动画 */
+@media (prefers-reduced-motion: reduce){
+  .tab-page.slide-r,.tab-page.slide-l{animation:fadein .2s}
+}
 /* 滑动切页：跟手拖动中的「候场页」绝对定位铺满 .pages、不占布局；
    注意 #tab-record.active{display:grid} 特异性更高，候场的记分页被激活时仍是两栏不跳变 */
 .tab-page.dragging{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;display:block}
@@ -439,11 +451,14 @@ nav button.has-new::after{
 }
 
 /* ========== 宝宝切换条 ========== */
-/* 外层负责 sticky 置顶 + 整屏宽底色（盖住滚过的内容）+ 微阴影分层 */
+/* 外层负责 sticky 置顶 + 整屏宽底色（盖住滚过的内容）+ 微阴影分层
+   top 必须等于余额卡那块 sticky 区域的实际高度（--hero-h 由 JS 测量后写入），
+   否则两条会叠在一起 */
 .kids-bar-wrap{
-  position:sticky;top:0;z-index:40;
+  position:sticky;top:var(--hero-h, 102px);z-index:40;
   background:var(--bg);
-  padding:12px 0 2px;
+  /* 底部留 8px 底色当「呼吸带」：滚动时内容不会紧贴着宝宝条下沿被切断 */
+  padding:10px 0 8px;
   box-shadow:0 6px 8px -8px rgba(47,53,66,.18);
 }
 /* 内层负责横向滚动（宝宝多时左右滑） */
@@ -637,15 +652,17 @@ nav button.has-new::after{
   </div>
 </header>
 
-<!-- ===== 积分余额卡 ===== -->
-<div class="balance-card">
-  <div class="balance-main">
-    <div class="label">💰 <span id="balanceName">宝宝</span>的总积分</div>
-    <div class="num"><span id="totalPts">0</span><small> 分</small></div>
-  </div>
-  <div class="balance-side">
-    今日 <b id="todayPts">+0</b><br>
-    本周 <b id="weekPts">+0</b>
+<!-- ===== 积分余额卡（sticky 置顶：滚到哪儿都能看到总积分） ===== -->
+<div class="hero-wrap" id="heroWrap">
+  <div class="balance-card">
+    <div class="balance-main">
+      <div class="label">💰 <span id="balanceName">宝宝</span>的总积分</div>
+      <div class="num"><span id="totalPts">0</span><small> 分</small></div>
+    </div>
+    <div class="balance-side">
+      今日 <b id="todayPts">+0</b><br>
+      本周 <b id="weekPts">+0</b>
+    </div>
   </div>
 </div>
 
@@ -1121,13 +1138,43 @@ function renderBalance(){
 }
 
 /* ---------- 页签切换 ---------- */
+const TAB_ORDER = ['record','history','exchange','settings'];
 function switchTab(name, btn){
-  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
-  $('#tab-'+name).classList.add('active');
+  // 记住从哪一页来，决定新页是从右边滑进来还是左边滑进来
+  const prev = document.querySelector('.tab-page.active:not(.dragging)');
+  const from = prev ? TAB_ORDER.indexOf(prev.id.slice(4)) : -1;
+  const to   = TAB_ORDER.indexOf(name);
+
+  document.querySelectorAll('.tab-page').forEach(p=>{
+    p.classList.remove('active','slide-r','slide-l');
+  });
+  const page = $('#tab-'+name);
+  page.classList.add('active');
+  if(from >= 0 && from !== to){
+    page.classList.add(to > from ? 'slide-r' : 'slide-l');
+    // 动画一结束就摘掉：这个类带 transform 动画，留着会和手势拖动的内联 transform 打架
+    page.addEventListener('animationend', function once(){
+      page.classList.remove('slide-r','slide-l');
+      page.removeEventListener('animationend', once);
+    });
+  }
+
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   window.scrollTo(0,0);
 }
+
+/* ---------- 置顶高度同步 ---------- */
+/* 余额卡 sticky 后，宝宝条的 top 必须等于它的实际高度（两者不能都用 top:0）。
+   余额卡高度会随字号/宽度/内容变化，所以量出来写进 --hero-h，而不是写死像素。 */
+function syncHeroHeight(){
+  const hw = $('#heroWrap');
+  if(!hw) return;
+  const h = Math.round(hw.getBoundingClientRect().height);
+  if(h > 0) document.documentElement.style.setProperty('--hero-h', h + 'px');
+}
+window.addEventListener('resize', syncHeroHeight);
+window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120));
 
 /* ---------- 左右滑动切页（跟手滑动 + 松手吸附；Pointer Events 统一支持触屏和鼠标拖拽） ---------- */
 (function(){
@@ -2076,7 +2123,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.0';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.1';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 
@@ -2595,6 +2642,7 @@ function renderAll(){
   renderKidsBar();
   $('#quoteStrip').innerHTML = '💡 今日寄语：<b>' + dailyQuote() + '</b>';
   renderBalance();
+  syncHeroHeight();          // 余额卡高度变了，宝宝条的 sticky top 要跟着走
   renderRewardGroups();
   renderPunish();
   renderStats();
@@ -2609,6 +2657,9 @@ renderAll();
 
 // 打开页面 1.5 秒后静默查一次更新（6 小时内只请求一次），有新版才在「设置」tab 点红点
 setTimeout(maybeAutoCheckUpdate, 1500);
+// 字体/首次布局稳定后再量一次余额卡高度，避免 --hero-h 差几像素让两条 sticky 叠住
+window.addEventListener('load', syncHeroHeight);
+setTimeout(syncHeroHeight, 300);
 </script>
 </body>
 </html>
