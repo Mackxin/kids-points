@@ -132,24 +132,21 @@ main{padding:12px 12px calc(64px + env(safe-area-inset-bottom));max-width:1280px
   .quick-row input[name=reason]{flex:1 1 100%;order:5}
   .quick-row .go{margin-left:auto}
 }
-.tab-page{display:none}
-.tab-page.active{display:block;animation:fadein .25s}
-/* 切页淡入：只动透明度——绝不能带 transform，否则运行中的动画会覆盖滑动拖动的内联 transform（打开页面 250ms 内拖不动） */
-@keyframes fadein{from{opacity:0}to{opacity:1}}
-/* 点底部 tab 切页：按左右方向做一次「滑进来」。
-   只在 switchTab 里临时挂类，animationend 立刻摘掉——
-   常驻 transform 动画会覆盖手势拖动的内联 transform，这条红线不能破。 */
-.tab-page.slide-r{animation:slideInR .26s cubic-bezier(.22,.61,.36,1)}
-.tab-page.slide-l{animation:slideInL .26s cubic-bezier(.22,.61,.36,1)}
-@keyframes slideInR{from{opacity:0;transform:translateX(36px)} to{opacity:1;transform:translateX(0)}}
-@keyframes slideInL{from{opacity:0;transform:translateX(-36px)} to{opacity:1;transform:translateX(0)}}
-/* 尊重系统「减弱动态效果」：直接不走位移动画 */
-@media (prefers-reduced-motion: reduce){
-  .tab-page.slide-r,.tab-page.slide-l{animation:fadein .2s}
-}
+/* 页面自身必须不透明：滑动切页时候场页盖在旧页上层，
+   没有背景色的话两页内容会叠在一起（看起来就是一片「闪」/重影） */
+.tab-page{display:none;background:var(--bg)}
+/* ⚠️ 这里绝对不能挂 animation：
+   拖动吸附时会给候场页加 .active，任何 opacity 动画都会让新页半透明地滑进来，
+   透出底下的旧页 = 闪动。切页动效统一交给手势拖动/点 tab 的 transition（见 slideTo）。 */
+.tab-page.active{display:block}
+/* 注意：点 tab 切页不再用 CSS animation（旧页瞬间 display:none + 新页 opacity 0 起步，
+   中间会露一帧空白，看起来就是「闪」）。改成 slideTo() 里两页一起 transform 过渡。 */
 /* 滑动切页：跟手拖动中的「候场页」绝对定位铺满 .pages、不占布局；
-   注意 #tab-record.active{display:grid} 特异性更高，候场的记分页被激活时仍是两栏不跳变 */
-.tab-page.dragging{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;display:block}
+   注意 #tab-record.active{display:grid} 特异性更高，候场的记分页被激活时仍是两栏不跳变。
+   用 min-height:100% 而不是 bottom:0：
+     - 候场页比当前页矮时 → 撑到当前页高度，背景把底下的旧页盖住
+     - 候场页比当前页高时 → 用自己内容的高度，不会被裁掉、也不会在收尾那一刻「长高」跳一下 */
+.tab-page.dragging{position:absolute;top:0;left:0;right:0;min-height:100%;z-index:2;display:block}
 /* 横向手势：竖向滚动归浏览器（pan-y），横向拖动交给 JS 跟手切页；鼠标拖拽同样生效 */
 body{touch-action:pan-y}
 .kids-bar{touch-action:auto}          /* 宝宝条恢复默认，保留原生横向滚动 */
@@ -1138,30 +1135,29 @@ function renderBalance(){
 }
 
 /* ---------- 页签切换 ---------- */
-const TAB_ORDER = ['record','history','exchange','settings'];
+/* 点底部 tab：优先交给 slideTo() 做「两页一起滑」（与手势拖动同一套观感）；
+   拿不到就退回瞬时切换（首屏、减少动效模式、或正在弹窗）。 */
 function switchTab(name, btn){
-  // 记住从哪一页来，决定新页是从右边滑进来还是左边滑进来
-  const prev = document.querySelector('.tab-page.active:not(.dragging)');
-  const from = prev ? TAB_ORDER.indexOf(prev.id.slice(4)) : -1;
-  const to   = TAB_ORDER.indexOf(name);
-
-  document.querySelectorAll('.tab-page').forEach(p=>{
-    p.classList.remove('active','slide-r','slide-l');
-  });
-  const page = $('#tab-'+name);
-  page.classList.add('active');
-  if(from >= 0 && from !== to){
-    page.classList.add(to > from ? 'slide-r' : 'slide-l');
-    // 动画一结束就摘掉：这个类带 transform 动画，留着会和手势拖动的内联 transform 打架
-    page.addEventListener('animationend', function once(){
-      page.classList.remove('slide-r','slide-l');
-      page.removeEventListener('animationend', once);
-    });
-  }
-
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  window.scrollTo(0,0);
+  if(btn) btn.classList.add('active');
+
+  const page = $('#tab-'+name);
+  if(!page) return;
+  // 点的就是当前页：只回顶部，别把 active 摘了再加（会闪一下空白）
+  if(page.classList.contains('active')){ scrollTopSmooth(); return; }
+
+  if(typeof window.__slideTab === 'function' && window.__slideTab(name)) return;
+
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+  page.classList.add('active');
+  scrollTopSmooth();
+}
+
+/* 回顶部：平滑滚，别「啪」一下跳上去（在页面中部横滑切页时特别明显） */
+function scrollTopSmooth(){
+  if(window.scrollY <= 0) return;
+  try{ window.scrollTo({ top:0, behavior:'smooth' }); }
+  catch(e){ window.scrollTo(0,0); }
 }
 
 /* ---------- 置顶高度同步 ---------- */
@@ -1270,9 +1266,12 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
     if(next!==pages[t]){
       resetPage(next);
       next=pages[t];
-      next.classList.add('dragging');                // 绝对定位铺满 .pages，不占布局
+      // 先把位置/过渡设好，最后再挂 .dragging（display:none → absolute）：
+      // 反过来的话，候场页有可能在「已显示但还没定位」的那一帧闪现在原位
       next.style.willChange='transform';
       next.style.transition='none';
+      next.style.transform='translateX('+(nd*W+eff)+'px)';
+      next.classList.add('dragging');                // 绝对定位铺满 .pages，不占布局
     }
     next.style.transform='translateX('+(nd*W+eff)+'px)';   // 候场页紧贴当前页外侧，跟手探入
   }
@@ -1296,7 +1295,7 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
         c.classList.remove('active');
         resetPage(c); resetPage(n);
         document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TABS[t]));
-        window.scrollTo(0,0);
+        scrollTopSmooth();
       },SNAP_MS);
     }else{
       const E='cubic-bezier(.2,.9,.3,1)';             // 没划到位：弹回
@@ -1314,6 +1313,62 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
     if(n){ n.style.transition='transform 200ms ease'; n.style.transform='translateX('+(lastNd*W)+'px)'; }
     setTimeout(()=>{ resetPage(c); resetPage(n); },220);
   }
+
+  /* ---------- 点底部 tab 的切页：两页一起滑（和手势拖动同一套观感） ----------
+     以前用 CSS animation 让新页「滑进来」，问题是旧页瞬间 display:none、
+     新页又从 opacity:0 起步，中间会露一帧空白 —— 看着就是闪一下。
+     这里改成：旧页留在原地滑出、新页绝对定位在侧面滑入，全程两页都不透明。 */
+  function slideTo(name){
+    if(!window.matchMedia) return false;
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;  // 尊重「减弱动态效果」
+    if(document.querySelector('.modal-mask.show')) return false;                      // 弹窗开着就别动
+    const t = TABS.indexOf(name);
+    const to = pages[t];
+    const from = curPage();
+    if(!to || !from || to === from) return false;
+    const i = pages.indexOf(from);
+    if(i < 0) return false;
+
+    const dir = t > i ? 1 : -1;                      // 1 = 新页在右边，从右往里滑
+    const W = from.offsetWidth || innerWidth;
+    const E = 'cubic-bezier(.2,.7,.3,1)';
+    const myGen = ++gen;                             // 作废未收尾的旧定时器
+
+    // 先把可能还在跑的过渡收干净（手势吸附没滑完就点了 tab 的情况）
+    pages.forEach(p=>{
+      if(p === from || p === to) return;
+      p.classList.remove('active');
+      resetPage(p);
+    });
+    from.classList.remove('dragging');               // 必须摘掉，否则 from 变绝对定位、页面高度会塌
+    resetPage(from);
+    resetPage(to);
+    next = null;                                     // 候场页从这里开始由 slideTo 接管
+
+    // 新页先摆到屏幕外侧（transition:none），再统一放开过渡滑回原位
+    to.style.willChange = 'transform';
+    to.style.transition = 'none';
+    to.style.transform  = 'translateX(' + (dir * W) + 'px)';
+    to.classList.add('dragging', 'active');          // active 必须加，否则 display:none 根本看不见
+    from.style.willChange = 'transform';
+    from.style.transition = 'none';
+    from.style.transform  = 'translateX(0px)';
+    void to.offsetWidth;                             // 强制先落一次样式，避免起点被合并掉、直接跳到位
+
+    from.style.transition = 'transform ' + SNAP_MS + 'ms ' + E;
+    to.style.transition   = 'transform ' + SNAP_MS + 'ms ' + E;
+    from.style.transform  = 'translateX(' + (-dir * W) + 'px)';
+    to.style.transform    = 'translateX(0px)';
+
+    setTimeout(()=>{
+      if(myGen !== gen) return;
+      from.classList.remove('active');
+      resetPage(from); resetPage(to);
+      scrollTopSmooth();
+    }, SNAP_MS);
+    return true;
+  }
+  window.__slideTab = slideTo;
 })();
 
 /* ================= 记分页 ================= */
@@ -2123,7 +2178,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.1';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.2';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 
