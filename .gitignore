@@ -13,3 +13,6 @@ android/app/src/main/assets/index.html
 
 # 工作日志（含家庭信息，不纳入仓库）
 .workbuddy/
+
+# 本地导出的安装包不入库（正式包在 GitHub Release 上）
+*.apk
