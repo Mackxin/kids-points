@@ -2116,6 +2116,21 @@ function setUpdateBtn(text, disabled, primary){
   b.classList.toggle('pri', !!primary);
 }
 
+// Release 说明是 Markdown，卡片里只做纯文本展示，去掉 # ** ` - 这些符号就够读了
+function mdToText(s){
+  return String(s || '')
+    .replace(/\r/g, '')
+    .replace(/^#{1,6}\s*/gm, '')            // 标题井号
+    .replace(/\*\*([^*]+)\*\*/g, '$1')      // 粗体
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2')  // 斜体
+    .replace(/`([^`]+)`/g, '$1')            // 行内代码
+    .replace(/^\s*[-*+]\s+/gm, '· ')        // 列表项
+    .replace(/^\s*---+\s*$/gm, '')          // 分隔线
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')// 链接只留文字
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function renderUpdateCard(){
   const cv = $('#curVersion');
   if(cv) cv.textContent = 'v' + curVersion;
@@ -2126,7 +2141,8 @@ function renderUpdateCard(){
   if(notes){
     if(s.notes && (s.phase === 'available' || s.phase === 'downloading')){
       notes.style.display = 'block';
-      notes.textContent = s.notes.length > 600 ? s.notes.slice(0,600) + '…' : s.notes;
+      const txt = mdToText(s.notes);
+      notes.textContent = txt.length > 600 ? txt.slice(0, 600) + '…' : txt;
     }else{
       notes.style.display = 'none';
     }
@@ -2147,6 +2163,10 @@ function renderUpdateCard(){
   }else if(s.phase === 'downloading'){
     st.innerHTML = '正在下载 <b>' + (s.pct||0) + '%</b>，下载完会自动弹出安装';
     setUpdateBtn('下载中…', true, false);
+  }else if(s.phase === 'installed'){
+    // 下载完 ≠ 装好了：还要用户在系统安装界面点一下「更新」，所以别急着说"已是最新"
+    st.innerHTML = '📦 已下载完成，在系统安装界面点「更新」就升级好了';
+    setUpdateBtn('重新检查', false, false);
   }else if(s.phase === 'latest'){
     st.innerHTML = '✅ 已是最新版本' + (s.latest ? '（线上 v' + s.latest + '）' : '');
     setUpdateBtn('重新检查', false, false);
@@ -2258,7 +2278,8 @@ window.__onUpdateProgress = function(pct){
 };
 window.__onUpdateDone = function(ok, msg){
   if(ok){
-    updateState.phase = 'latest'; updateState.pct = 100; updateState.latest = '';
+    updateState.phase = 'installed';
+    updateState.pct = 100;
     renderUpdateCard();
     toast('下载完成，正在安装…');
   }else{
@@ -2273,7 +2294,9 @@ window.__onUpdateDone = function(ok, msg){
 function maybeAutoCheckUpdate(){
   try{
     const c = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY) || 'null');
-    if(c && c.at && Date.now() - c.at < UPDATE_AUTO_MS) return;
+    // 刚升级过（当前版本已经比缓存里的线上版本新）就忽略缓存，重新对一次
+    const upgraded = c && c.latest && cmpVer(curVersion, c.latest) > 0;
+    if(c && c.at && Date.now() - c.at < UPDATE_AUTO_MS && !upgraded) return;
   }catch(e){}
   checkUpdate(false);
 }
