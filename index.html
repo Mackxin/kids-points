@@ -653,6 +653,12 @@ nav button.has-new::after{
   margin-top:22px;padding:14px 18px;background:#eef2fc;border-radius:14px;
   font-size:14px;color:#3b5bb0;line-height:1.7;text-align:center;font-weight:600;
 }
+/* 明细为空时的诊断提示：九成是「记分日期」没切回今天，分数落到别的日子了 */
+#report .rp-hint{
+  margin-top:10px;padding:10px 12px;background:#fff8e8;border-left:3px solid #e8b23a;
+  border-radius:8px;font-size:12px;color:#8a6d20;line-height:1.85;
+}
+#report .rp-hint b{color:#6b5316}
 </style>
 </head>
 <body>
@@ -2468,6 +2474,23 @@ function buildReport(){
       <td>${r.name}${multi?` · ${child}`:''}</td>
       <td style="font-weight:700;color:${r.pts>0?'#2e9e6b':'#e0594f'}">${r.pts>0?'+':''}${r.pts}</td>
     </tr>`).join('');
+
+  // 明细为空时给出诊断：多半是「记分日期」还停在过去某天，刚加的分落到那天去了
+  let emptyHint = '';
+  if(!recs.length){
+    const latest = C().records.reduce((a,b)=> (a && a.time>b.time) ? a : b, null);
+    if(latest){
+      const d0 = new Date(latest.time);
+      const dstr = `${d0.getMonth()+1}月${d0.getDate()}日 ` +
+        `${String(d0.getHours()).padStart(2,'0')}:${String(d0.getMinutes()).padStart(2,'0')}`;
+      const isToday = dayKey(latest.time) === dayKey(Date.now());
+      emptyHint = `<div class="rp-hint">ℹ️ 这个范围里还没有记录。${
+        multi ? C().name : '你'
+      }最近一条记录是 <b>${dstr}</b>（${latest.name} ${latest.pts>0?'+':''}${latest.pts}）。${
+        isToday ? '' : '如果这条就是刚记的分，说明当时「记分日期」还停在那一天 —— 回记分页点一下「回到今天」再记，分数就会算进今天了。'
+      }</div>`;
+    }
+  }
   const exRows = sortedEx.map(e=>{
     const ok = total>=e.pts;
     return `<tr>
@@ -2508,6 +2531,7 @@ function buildReport(){
       <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
       ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
     </table>
+    ${emptyHint}
     <div class="rp-quote">💌 ${quote}</div>`;
 }
 /* ---------- 导出时间范围筛选 ---------- */
