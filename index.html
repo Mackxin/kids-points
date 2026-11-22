@@ -1398,7 +1398,17 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
 /* ================= 记分页 ================= */
 /* ---------- 补记：忘记哪天的分，先把记分日期切到那天，之后所有记分都落在那天 ---------- */
 let recordDate = startOfToday();   // 当前记分日期（默认今天，可切到过去任意一天）
+let recordDateManual = false;      // 用户是否主动选过日期；没选过就一直跟随"今天"
 function startOfToday(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+/* 🔴 跨天自动跟随：App 常驻后台时页面不会重载，recordDate 会一直卡在打开那天，
+   于是第二天加的分全被记到前一天。回到前台 / 每分钟 / 记分瞬间都校正一次。 */
+function syncRecordDate(){
+  if(recordDateManual) return;                       // 用户主动补记某天，尊重他的选择
+  const t = startOfToday();
+  if(dayKey(recordDate) === dayKey(t)) return;
+  recordDate = t;
+  renderRecordDateBar();
+}
 // 日期徽标：今天 / 昨天 / 前天 / 10月23日 / 2025年10月23日（跨年才显示年份）
 function fmtDateChip(d){
   const diff = Math.round((startOfToday() - d)/86400000);
@@ -1434,22 +1444,29 @@ function setRecordDate(v){
   d.setHours(0,0,0,0);
   if(d > startOfToday()) return toast('不能选未来的日期哦');
   recordDate = d;
+  recordDateManual = true;
   renderRecordDateBar();
   toast('📅 记分日期：' + fmtDateChip(d));
 }
 function resetRecordDate(){
   recordDate = startOfToday();
+  recordDateManual = false;
   renderRecordDateBar();
   toast('📅 已回到今天');
 }
 // 记分时间戳：选中日期的 0 点 + 当前时刻（补记也能记下当天具体的时分）
 function recordTime(){
+  syncRecordDate();          // 兜底：WebView 后台插着过夜也不怕，记分前先对齐日期
   const d = new Date(recordDate);
   const now = new Date();
   d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
   return d.getTime();
 }
 $('#recordDateInput').addEventListener('change', e=>setRecordDate(e.target.value));
+// 回到前台 / 每分钟校正一次记分日期（App 后台跨夜后的关键修复）
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncRecordDate(); });
+window.addEventListener('focus', syncRecordDate);
+setInterval(syncRecordDate, 60000);
 
 let quickMode = 'plus';   // 自定义记分当前模式
 function setMode(m){
@@ -2201,7 +2218,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.3';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.4';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 

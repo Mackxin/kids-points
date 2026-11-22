@@ -409,6 +409,17 @@ public class MainActivity extends Activity {
         super.onActivityResult(req, res, data);
     }
 
+    /** 回到前台时校正「记分日期」：WebView 后台过夜后页面不重载，日期会卡在旧的一天 */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (web != null) {
+            web.evaluateJavascript(
+                    "(function(){try{if(typeof syncRecordDate==='function')syncRecordDate();}catch(e){}})()",
+                    null);
+        }
+    }
+
     /** 返回键：批量选择中先退出批量 → 不在记分页先回记分页 → 记分页连按两次退出（防误触） */
     @Override
     public boolean onKeyDown(int code, KeyEvent e) {
@@ -436,7 +447,6 @@ public class MainActivity extends Activity {
             web.loadUrl("about:blank");
             web.destroy();
             web = null;
-        }
-        super.onDestroy();
+        }        super.onDestroy();
     }
 }
