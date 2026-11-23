@@ -944,7 +944,7 @@ nav button.has-new::after{
     <div class="exp-pickers" id="expDatePickers"></div>
     <div class="exp-section-title">② 选择导出对象</div>
     <button class="exp-opt" onclick="runExport('single')">👤 单人报告<br><small>只导出当前宝宝「<span id="expCurName"></span>」</small></button>
-    <button class="exp-opt family" id="expFamilyBtn" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 · 兄弟姐妹互相鼓励</small></button>
+    <button class="exp-opt family" id="expFamilyBtn" onclick="runExport('family')">👨‍👩‍👧‍👦 多人报告<br><small>全家积分榜 + 每位宝宝各自的记录明细</small></button>
     <div class="modal-btns"><button class="cancel" onclick="cancelExport()">取消</button></div>
   </div>
 </div>
@@ -2256,7 +2256,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.5';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.6';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 
@@ -2482,10 +2482,13 @@ function maybeAutoCheckUpdate(){
 }
 
 /* ================= 导出图片 / PDF ================= */
-function buildReport(){
+function buildReport(opts){
   // 组装一份"积分报告"HTML，渲染到隐藏节点，再用 html2canvas 截图
   // mode: 'auto'(默认，>1宝宝才全家) | 'single'(单人) | 'family'(强制全家)
-  const mode = reportMode || 'auto';
+  // opts 允许外部把 mode / 时间范围快照传进来，避免导出过程中状态被改导致内容与文件名错位
+  opts = opts || {};
+  const mode = opts.mode || reportMode || 'auto';
+  const df   = opts.df || reportDateFilter;
   const multi = mode==='family' || (mode==='auto' && db.children.length > 1);
   const quote = randomQuote();
   const nowStr = fmtTime(Date.now());
@@ -2520,8 +2523,8 @@ function buildReport(){
   // —— 当前宝宝明细 ——
   const total = totalPts();
   const sortedEx = [...db.exchange].sort((a,b)=>a.pts-b.pts);
-  const scopeText = reportScopeText();
-  const recs = getReportRecords();   // 已按时间范围筛选 + 按时间倒序，最多30笔
+  const scopeText = reportScopeText(df);
+  const recs = getReportRecords(df);   // 已按时间范围筛选 + 按时间倒序，最多30笔
   const rows = recs.map(({r,child})=>`
     <tr>
       <td>${fmtTime(r.time)}</td>
@@ -2569,6 +2572,33 @@ function buildReport(){
       <div><div class="v" style="color:#e0594f">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
     </div>`;
 
+  // —— 明细区：多人报告给每位宝宝各列一段，单人报告只列当前宝宝 ——
+  let detailHTML;
+  if(multi){
+    detailHTML = db.children.map(k=>{
+      const rs   = getReportRecords(df, k);
+      const ktot = k.records.reduce((a,r)=>a+r.pts,0);
+      const krows = rs.map(({r})=>`
+        <tr>
+          <td>${fmtTime(r.time)}</td>
+          <td>${KIND_NAME[r.kind]}</td>
+          <td>${r.name}</td>
+          <td style="font-weight:700;color:${r.pts>0?'#2e9e6b':'#e0594f'}">${r.pts>0?'+':''}${r.pts}</td>
+        </tr>`).join('');
+      return `<div class="sec">📋 ${k.name} · 共 ${ktot} 分 <small>（${scopeText}，最多30笔）</small></div>
+        <table>
+          <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
+          ${krows || '<tr><td colspan=4>该范围暂无记录</td></tr>'}
+        </table>`;
+    }).join('');
+  }else{
+    detailHTML = `<div class="sec">📋 记录明细 · ${scopeText} <small>（最多显示30笔）</small></div>
+      <table>
+        <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
+        ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
+      </table>${emptyHint}`;
+  }
+
   $('#report').innerHTML = `
     <div class="rp-head">
       <div class="t">${titleText}</div>
@@ -2581,12 +2611,7 @@ function buildReport(){
       <tr><th>兑换项目</th><th>所需积分</th><th>状态</th></tr>
       ${exRows || '<tr><td colspan=3>暂无兑换项目</td></tr>'}
     </table>
-    <div class="sec">📋 记录明细 · ${scopeText} <small>（最多显示30笔）</small></div>
-    <table>
-      <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
-      ${rows || '<tr><td colspan=4>暂无记录</td></tr>'}
-    </table>
-    ${emptyHint}
+    ${detailHTML}
     <div class="rp-quote">💌 ${quote}</div>`;
 }
 /* ---------- 导出时间范围筛选 ---------- */
@@ -2609,8 +2634,8 @@ function dayLabel(y, m, d){
   if(cur===key(1)) return '明天';
   return null;
 }
-function reportScopeText(){
-  const df = reportDateFilter;
+function reportScopeText(df){
+  df = df || reportDateFilter;
   if(df.d){
     const lbl = dayLabel(df.y, df.m, df.d);
     return (lbl?lbl+' ':'') + `${df.y}年${df.m}月${df.d}日`;
@@ -2620,15 +2645,12 @@ function reportScopeText(){
   return '全部时间';
 }
 // 取出要导出的记录（已按日期范围筛选 + 按时间倒序，最多30笔）
-function getReportRecords(){
-  let list;
-  if(reportMode==='family'){
-    list = [];
-    db.children.forEach(k=> k.records.forEach(r=> list.push({r, child:k.name})) );
-  }else{
-    list = C().records.map(r=>({r, child:C().name}));
-  }
-  const df = reportDateFilter;
+// child 传了只取那个宝宝；不传就按模式取：多人=全部宝宝，单人=当前宝宝
+function getReportRecords(df, child){
+  df = df || reportDateFilter;
+  const kids = child ? [child] : (reportMode==='family' ? db.children : [C()]);
+  let list = [];
+  kids.forEach(k => (k.records||[]).forEach(r => list.push({r, child:k.name})) );
   if(df.y||df.m||df.d){
     list = list.filter(({r})=>{
       const dt = new Date(r.time);
@@ -2721,41 +2743,62 @@ function ensureExportLibs(){
   });
   return _libLoading;
 }
+let _exporting = false;   // 防连点：html2canvas 是异步的，连点会生成两份文件（且第二份文件名错位）
 async function exportImage(){
-  toast('正在准备导出组件…');
-  try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
-  const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();   // 文件名标注对象+时间范围
-  buildReport();
-  toast('正在生成图片…');
+  if(_exporting) return toast('正在导出，稍等一下…');
+  _exporting = true;
   try{
-    const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
-    // 文件名去重：范围已含具体日期（某天/今天/昨天/明天）就不再拼导出日期
-    const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
-    saveFile(`积分报告-${scope}${dayTag}.png`, canvas.toDataURL('image/png'));
-    if(!window.AndroidBridge) toast('🖼 图片已导出');
-  }catch(e){ toast('生成失败，请重试'); }
-  reportMode = 'auto';
-  reportDateFilter = {y:null, m:null, d:null};
+    // 一次性快照：报告内容和文件名必须来自同一份状态。中途被改就会出现
+    // 「报告是今天的、文件名却还带着日期后缀」这种错位
+    const mode = reportMode;
+    const df   = Object.assign({}, reportDateFilter);
+    const scope = (mode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText(df);
+    // 范围已含具体日期（今天/某天）就不再拼导出日期，免得文件名叫成「今天…-2026-11-23」
+    const dayTag = df.d ? '' : '-' + dayKey(Date.now());
+    const fname = `积分报告-${scope}${dayTag}.png`;
+    toast('正在准备导出组件…');
+    try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
+    buildReport({mode, df});
+    toast('正在生成图片…');
+    try{
+      const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
+      saveFile(fname, canvas.toDataURL('image/png'));
+      if(!window.AndroidBridge) toast('🖼 图片已导出');
+    }catch(e){ toast('生成失败，请重试'); }
+  }finally{
+    reportMode = 'auto';
+    reportDateFilter = {y:null, m:null, d:null};
+    _exporting = false;
+  }
 }
 async function exportPDF(){
-  toast('正在准备导出组件…');
-  try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
-  const scope = (reportMode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText();
-  buildReport();
-  toast('正在生成PDF…');
+  if(_exporting) return toast('正在导出，稍等一下…');
+  _exporting = true;
   try{
-    const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
-    const img = canvas.toDataURL('image/jpeg', 0.92);
-    const pdf = new jspdf.jsPDF('p','mm','a4');
-    // 按A4宽度等比缩放放置
-    const pw = 210, ph = canvas.height * pw / canvas.width;
-    pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
-    const dayTag = reportDateFilter.d ? '' : '-' + dayKey(Date.now());
-    saveFile(`积分报告-${scope}${dayTag}.pdf`, pdf.output('blob'));
-    if(!window.AndroidBridge) toast('📄 PDF已导出');
-  }catch(e){ toast('生成失败，请重试'); }
-  reportMode = 'auto';
-  reportDateFilter = {y:null, m:null, d:null};
+    const mode = reportMode;
+    const df   = Object.assign({}, reportDateFilter);
+    const scope = (mode==='family' ? '全家' : (C().name||'单人')) + '-' + reportScopeText(df);
+    const dayTag = df.d ? '' : '-' + dayKey(Date.now());
+    const fname = `积分报告-${scope}${dayTag}.pdf`;
+    toast('正在准备导出组件…');
+    try{ await ensureExportLibs(); }catch(e){ return toast('导出组件加载失败，请检查网络'); }
+    buildReport({mode, df});
+    toast('正在生成PDF…');
+    try{
+      const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
+      const img = canvas.toDataURL('image/jpeg', 0.92);
+      const pdf = new jspdf.jsPDF('p','mm','a4');
+      // 按A4宽度等比缩放放置
+      const pw = 210, ph = canvas.height * pw / canvas.width;
+      pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
+      saveFile(fname, pdf.output('blob'));
+      if(!window.AndroidBridge) toast('📄 PDF已导出');
+    }catch(e){ toast('生成失败，请重试'); }
+  }finally{
+    reportMode = 'auto';
+    reportDateFilter = {y:null, m:null, d:null};
+    _exporting = false;
+  }
 }
 
 /* ---------- 导出范围选择 ---------- */
