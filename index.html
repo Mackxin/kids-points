@@ -1002,8 +1002,10 @@ const DEFAULT_EXCHANGE = [
 
 /* ---------- 本地存储（多宝宝：积分/记录各自独立，奖励/惩罚/兑换项目全家共用） ---------- */
 const KEY = 'kids-points-app-v2';
+const KEY_BROKEN = KEY + '-broken';       // 数据读不出来时的原文副本，绝不静默丢
 const clone = a => JSON.parse(JSON.stringify(a));
 let uid = Date.now();
+let dataRecovered = false;   // true = 上次的数据读不出来，本次是空表起步（页面要提示用户）
 let db = load();  // {cur, children:[{id,name,gender,records}], rewards, punish, exchange}
 ensureCodes(db);  // 老数据迁移：奖励/惩罚项目没有序号的自动补上
 
@@ -1076,13 +1078,48 @@ function mergeItems(children){
   children.forEach(c=>{ (c.rewards||[]).forEach(x=>r.push(x)); (c.punish||[]).forEach(x=>p.push(x)); (c.exchange||[]).forEach(x=>e.push(x)); });
   return { rewards:reId(uniq(r)), punish:reId(uniq(p)), exchange:reId(uniq(e)) };
 }
+// 清洗记录：分数/时间必须是数字。手改过或格式不对的备份里，"5" 这种字符串会让
+// reduce 变成字符串拼接（0 + "5" = "05"），总分直接算错，所以在这里挡掉。
+function cleanRecords(list){
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(r=>{
+    if(!r || typeof r !== 'object') return;
+    const pts = Number(r.pts), time = Number(r.time);
+    if(!isFinite(pts) || !isFinite(time)) return;
+    out.push({
+      id: Number(r.id) || (++uid),   // 老备份里可能没有 id，补一个唯一的，否则批量选择/编辑会认错行
+      kind: (r.kind==='punish' || r.kind==='exchange') ? r.kind : 'reward',
+      name: String(r.name==null ? '' : r.name),
+      pts, time
+    });
+  });
+  return out;
+}
+// 清洗项目列表：名称转字符串、分数/序号转数字
+function cleanItems(list){
+  return (Array.isArray(list) ? list : []).filter(x=>x && typeof x==='object').map(x=>{
+    const o = Object.assign({}, x);
+    o.name = String(x.name==null ? '' : x.name);
+    o.pts  = Number(x.pts) || 0;
+    if(x.code != null) o.code = Number(x.code) || 0;
+    return o;
+  });
+}
 // 把一份数据（localStorage 或导入的备份）规范成「项目全局」结构（v2）；不合法返回 null
 function normalizeData(d){
-  if(!d || !d.children || !d.children.length) return null;
-  d.children.forEach(c=>{ if(!c.gender) c.gender='unknown'; if(!c.records) c.records=[]; });
+  if(!d || !Array.isArray(d.children)) return null;
+  d.children = d.children.filter(c=>c && typeof c==='object');
+  if(!d.children.length) return null;
+  d.children.forEach(c=>{
+    if(!c.gender) c.gender = 'unknown';
+    if(c.name == null) c.name = '宝宝';
+    c.records = cleanRecords(c.records);
+  });
   if(!d.children.find(c=>c.id===d.cur)) d.cur = d.children[0].id;
   if(Array.isArray(d.rewards)){          // 已是「项目全局」新结构
-    d.punish = d.punish||[]; d.exchange = d.exchange||[];
+    d.rewards  = cleanItems(d.rewards);
+    d.punish   = cleanItems(d.punish);
+    d.exchange = cleanItems(d.exchange);
     return d;
   }
   // 旧结构：每个宝宝自带项目 → 合并成全局共用
@@ -1100,22 +1137,57 @@ function maxDataId(d){
   return m;
 }
 function load(){
-  try{
-    const d = JSON.parse(localStorage.getItem(KEY));
-    const n = normalizeData(d);
-    if(n) return n;
-  }catch(e){}
+  // 🔴 先看有没有原始数据。有但读不出来（写到一半断电、被别的页面写坏），
+  //    绝不能直接换成一张空表 —— 那样用户一记分就会把仅存的原数据覆盖掉。
+  //    这里把原文留一份副本，并让页面提示用户去恢复备份。
+  let raw = null;
+  try{ raw = localStorage.getItem(KEY); }catch(e){}
+  if(raw){
+    try{
+      const n = normalizeData(JSON.parse(raw));
+      if(n) return n;
+    }catch(e){}
+    try{ localStorage.setItem(KEY_BROKEN, raw); }catch(e){}
+    dataRecovered = true;
+  }
   const legacy = loadLegacy();
   if(legacy) return { cur: legacy.child.id, children:[legacy.child], rewards:legacy.rewards, punish:legacy.punish, exchange:legacy.exchange };
   const first = freshChild('宝宝');
   return { cur: first.id, children:[first], rewards:clone(DEFAULT_REWARDS), punish:clone(DEFAULT_PUNISH), exchange:clone(DEFAULT_EXCHANGE) };
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+function save(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(db));
+    return true;
+  }catch(e){
+    // 手机存储写满时 setItem 会抛错。以前这里没人接，记录进了内存却没落盘，
+    // 用户以为存上了，重启就没了。延时弹出是为了盖住调用处紧接着的那句
+    // "🎉 +5 分"成功提示 —— 最终留在屏幕上必须是这条警告。
+    setTimeout(()=>toast('⚠️ 保存失败：手机存储空间可能满了，请先备份再清理'), 150);
+    return false;
+  }
+}
 // 当前宝宝（后面所有积分/记录/项目都从这里取）
 function C(){ return db.children.find(c=>c.id===db.cur) || db.children[0]; }
 
 /* ---------- 小工具 ---------- */
 const $ = s => document.querySelector(s);
+/* 页面里到处用模板字符串拼 innerHTML，名字是用户自己输入的，必须转义：
+   escHtml 用于「文本位置」，jsAttr 用于「写在 onclick='…' 里的字符串参数」。
+   不转义会出现两类问题：名字里带 < 被当成标签；带 " 会把属性提前截断，点了没反应。 */
+function escHtml(s){
+  return String(s==null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+function jsAttr(s){
+  return String(s==null ? '' : s)
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'")
+    .replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/[\r\n]+/g,' ');
+}
 function toast(msg){
   const t = $('#toast');
   t.textContent = msg;
@@ -1164,6 +1236,10 @@ function renderBalance(){
 function switchTab(name, btn){
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
+  if(name === 'settings'){                        // 进过设置页就把"有新版本"的小红点收掉
+    const sb = document.querySelector('nav button[data-tab="settings"]');
+    if(sb) sb.classList.remove('has-new');
+  }
 
   const page = $('#tab-'+name);
   if(!page) return;
@@ -1226,7 +1302,9 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
     if(e.pointerType==='mouse' && e.button!==0) return;                    // 鼠标只认左键
     suppressClick=false;
     if(skipTarget(e.target)) return;
-    gen++;
+    // ⚠️ 这里绝对不能 gen++：点 tab 触发的 slideTo 收尾全靠「gen 没变」，
+    //    切页后 240ms 内随手再点一下屏幕（连点/点错再点）就会让两页永久卡在滑动中间态。
+    //    作废旧收尾改到 beginDrag() 里 —— 只有真的横向拖起来了才需要打断。
     sx=e.clientX; sy=e.clientY; lastX=sx; lastT=Date.now(); v=0;
     tracking=true; decided=false; horiz=false;
   });
@@ -1265,6 +1343,7 @@ window.addEventListener('orientationchange', ()=>setTimeout(syncHeroHeight, 120)
   document.addEventListener('click',e=>{ if(suppressClick){ e.preventDefault(); e.stopPropagation(); suppressClick=false; } },true);
 
   function beginDrag(){
+    gen++;   // 真的开始横向拖了，才作废上一次还没收尾的动画
     // 收尾上一场没做完的吸附（240ms 内又开了新手势）：只有新旧页同时存在才是吸附进行中，
     // 否则会把当前页的 .active 误删导致页面消失、宽度回退成视口宽
     const n=document.querySelector('.tab-page.active.dragging');
@@ -1498,11 +1577,11 @@ function renderRewardGroups(){
   const cats = [...new Set(db.rewards.map(r=>r.cat))];
   box.innerHTML = cats.map(cat=>`
     <div class="item-group">
-      <div class="group-head">${cat}</div>
+      <div class="group-head">${escHtml(cat)}</div>
       <div class="chip-wrap">
         ${db.rewards.filter(r=>r.cat===cat).map(r=>`
-          <button class="chip" onclick="addRecord('reward','${r.name.replace(/'/g,"\\'")}',${r.pts})">
-            <i class="code">${r.code||''}</i>${r.name}<span class="pts">+${r.pts}</span>
+          <button class="chip" onclick="addRecord('reward','${jsAttr(r.name)}',${Number(r.pts)||0})">
+            <i class="code">${escHtml(r.code||'')}</i>${escHtml(r.name)}<span class="pts">+${Number(r.pts)||0}</span>
           </button>`).join('')}
       </div>
     </div>`).join('');
@@ -1510,8 +1589,8 @@ function renderRewardGroups(){
 // 渲染惩罚项目
 function renderPunish(){
   $('#punishWrap').innerHTML = db.punish.map(p=>`
-    <button class="chip minus" onclick="addRecord('punish','${p.name.replace(/'/g,"\\'")}',-${p.pts})">
-      <i class="code">${p.code||''}</i>${p.name}<span class="pts">-${p.pts}</span>
+    <button class="chip minus" onclick="addRecord('punish','${jsAttr(p.name)}',-${Number(p.pts)||0})">
+      <i class="code">${escHtml(p.code||'')}</i>${escHtml(p.name)}<span class="pts">-${Number(p.pts)||0}</span>
     </button>`).join('');
 }
 
@@ -1646,6 +1725,9 @@ function renderRecords(){
       return true;
     });
   }
+  // 🔴 按时间倒序再分组：补记以前的分数时（新记录 unshift 到数组最前），
+  //    不排序的话「昨天」那一组会排到「今天」上面，看着像日期乱了
+  list = list.slice().sort((a,b)=> b.time - a.time);
   // 范围汇总
   const plus  = list.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0);
   const minus = list.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0);
@@ -1677,7 +1759,9 @@ function renderRecords(){
   });
   box.innerHTML = bar + Object.keys(groups).map(k=>{
     const [y,m,d] = k.split('-');
-    const weekday = '日一二三四五六'[new Date(k).getDay()];
+    // 用年月日构造本地日期取星期：new Date('2026-11-22') 会按 UTC 解析，
+    // 在西半球时区会差一天，星期就错了
+    const weekday = '日一二三四五六'[new Date(+y, +m-1, +d).getDay()];
     return `<div class="day-label">📅 ${m}月${d}日 星期${weekday}</div>` +
       groups[k].map(r=> batchMode
         ? // 批量模式：行首复选框、点行切换选中、隐藏 × 单条撤销
@@ -1685,7 +1769,7 @@ function renderRecords(){
             <div class="rec-check ${batchSel.has(r.id)?'on':''}">${batchSel.has(r.id)?'✓':''}</div>
             <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
             <div class="record-mid">
-              <div class="name">${r.name}</div>
+              <div class="name">${escHtml(r.name)}</div>
               <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
             </div>
             <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
@@ -1693,7 +1777,7 @@ function renderRecords(){
         : `<div class="record-item" onclick="openRecEdit(${r.id})">
             <div class="record-ico ${r.kind}">${KIND_ICON[r.kind]}</div>
             <div class="record-mid">
-              <div class="name">${r.name}</div>
+              <div class="name">${escHtml(r.name)}</div>
               <div class="time">${KIND_NAME[r.kind]} · ${fmtTime(r.time)}</div>
             </div>
             <div class="record-pts ${r.pts>0?'plus':'minus'}">${r.pts>0?'+':''}${r.pts}</div>
@@ -1773,8 +1857,8 @@ function renderExchange(){
     <div class="exchange-item">
       <div class="gift">🎁</div>
       <div class="info">
-        <div class="name">${e.name}</div>
-        <div class="cost">${e.pts} 分 <small>· 当前 ${total} 分</small></div>
+        <div class="name">${escHtml(e.name)}</div>
+        <div class="cost">${Number(e.pts)||0} 分 <small>· 当前 ${total} 分</small></div>
       </div>
       <button class="exchange-btn" ${total<e.pts?'disabled':''}
         onclick="doExchange(${e.id})">${total<e.pts?'还差 '+(e.pts-total):'立即兑换'}</button>
@@ -1813,7 +1897,7 @@ function renderSettings(){
   $('#kidsManage').innerHTML = db.children.map((k,i)=>`
     <div class="setting-row kid-row ${k.id===db.cur?'cur-kid':''}">
       <div class="name" onclick="switchChild(${k.id})" style="cursor:pointer">
-        <span class="kid-name">${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}</span>${k.id===db.cur?'<span class="cur-badge">当前</span>':''}
+        <span class="kid-name">${KID_EMOJI[i%KID_EMOJI.length]} ${escHtml(k.name)}</span>${k.id===db.cur?'<span class="cur-badge">当前</span>':''}
       </div>
       <select class="gender-sel" onchange="setKidGender(${k.id},this.value)">
         <option value="son" ${k.gender==='son'?'selected':''}>儿子</option>
@@ -1827,24 +1911,24 @@ function renderSettings(){
   // 奖励
   $('#setRewards').innerHTML = db.rewards.map(r=>`
     <div class="setting-row">
-      <div class="name"><span class="code-badge">${r.code||''}</span>${r.name}</div>
-      <div class="pts">+${r.pts}</div>
+      <div class="name"><span class="code-badge">${escHtml(r.code||'')}</span>${escHtml(r.name)}</div>
+      <div class="pts">+${Number(r.pts)||0}</div>
       <button class="mini-btn" onclick="openEdit('reward',${r.id})">✎</button>
       <button class="mini-btn del" onclick="delItem('reward',${r.id})">×</button>
     </div>`).join('');
   // 惩罚
   $('#setPunish').innerHTML = db.punish.map(p=>`
     <div class="setting-row">
-      <div class="name"><span class="code-badge">${p.code||''}</span>${p.name}</div>
-      <div class="pts minus">-${p.pts}</div>
+      <div class="name"><span class="code-badge">${escHtml(p.code||'')}</span>${escHtml(p.name)}</div>
+      <div class="pts minus">-${Number(p.pts)||0}</div>
       <button class="mini-btn" onclick="openEdit('punish',${p.id})">✎</button>
       <button class="mini-btn del" onclick="delItem('punish',${p.id})">×</button>
     </div>`).join('');
   // 兑换
   $('#setExchange').innerHTML = db.exchange.map(e=>`
     <div class="setting-row">
-      <div class="name">${e.name}</div>
-      <div class="pts cost">${e.pts}分</div>
+      <div class="name">${escHtml(e.name)}</div>
+      <div class="pts cost">${Number(e.pts)||0}分</div>
       <button class="mini-btn" onclick="openEdit('exchange',${e.id})">✎</button>
       <button class="mini-btn del" onclick="delItem('exchange',${e.id})">×</button>
     </div>`).join('');
@@ -1855,7 +1939,7 @@ function renderKidsBar(){
   $('#kidsBar').innerHTML = db.children.map((k,i)=>{
     const pts = k.records.reduce((s,r)=>s+r.pts,0);
     return `<button class="kid-chip ${k.id===db.cur?'on':''}" onclick="switchChild(${k.id})">
-      ${KID_EMOJI[i%KID_EMOJI.length]} ${k.name}<b>${pts}分</b>
+      ${KID_EMOJI[i%KID_EMOJI.length]} ${escHtml(k.name)}<b>${pts}分</b>
     </button>`;
   }).join('') + `<button class="kid-chip add" onclick="addChildPrompt()">＋ 添加宝宝</button>`;
 }
@@ -1913,7 +1997,7 @@ function delChild(id){
   if(db.children.length <= 1) return toast('至少要保留一个宝宝哦');
   const kid = db.children.find(c=>c.id===id);
   if(!kid) return;
-  if(!confirm(`删除「${kid.name}」的所有数据吗？\n（积分记录和自定义项目都会一起删掉，无法恢复！）`)) return;
+  if(!confirm(`删除「${kid.name}」的所有数据吗？\n（这个宝宝的全部积分记录都会删掉，无法恢复！\n奖励/惩罚/兑换项目是全家共用的，不会删）`)) return;
   if(!confirm('再确认一次：真的删除「'+kid.name+'」吗？')) return;
   db.children = db.children.filter(c=>c.id!==id);
   if(db.cur===id) db.cur = db.children[0].id;
@@ -1992,6 +2076,15 @@ function saveEdit(){
 // 点弹窗遮罩关闭
 $('#editModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeEdit(); });
 $('#exportModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) cancelExport(); });
+
+/* 关掉当前打开着的弹窗（App 里按返回键时优先走这里，别直接切页/退出）。
+   返回 true = 关掉了一个弹窗。 */
+function closeTopModal(){
+  if($('#recEditModal').classList.contains('show')){ closeRecEdit(); return true; }
+  if($('#editModal').classList.contains('show')){ closeEdit(); return true; }
+  if($('#exportModal').classList.contains('show')){ cancelExport(); return true; }
+  return false;
+}
 
 /* ================= 编辑记录（明细页点一条记录） ================= */
 let recEditId = null;
@@ -2094,6 +2187,10 @@ function resetAll(){
   if(!confirm('⚠️ 将清空所有积分记录和自定义项目，且无法恢复！\n真的要清空吗？')) return;
   if(!confirm('再确认一次：真的清空吗？')) return;
   localStorage.removeItem(KEY);
+  // 旧版单宝宝数据（v1）也要一起删：否则 load() 会把它当成"老数据迁移"又读回来，
+  // 用户看到的是"点了清空，数据又回来了"
+  try{ localStorage.removeItem('kids-points-app-v1'); }catch(e){}
+  dataRecovered = false;
   db = load(); save(); renderAll();
   toast('已清空，重新开始 🌱');
 }
@@ -2256,7 +2353,7 @@ $('#gistId').addEventListener('change',   ()=>{ saveGistCfg(Object.assign({}, gi
 /* 发版流程：改下面 APP_VERSION + android/app/build.gradle 的 versionName → 打 tag vX.Y.Z
    → 在 GitHub 建 Release 并上传 APK，App 内即可检测到。 */
 const UPDATE_REPO   = 'Mackxin/kids-points';
-const APP_VERSION   = '1.2.6';          // 网页版兜底版本号；App 内优先读原生 versionName
+const APP_VERSION   = '1.2.7';          // 网页版兜底版本号；App 内优先读原生 versionName
 const UPDATE_CHECK_KEY = 'kids-points-update-check';   // {at, latest, phase}
 const UPDATE_AUTO_MS   = 6 * 3600 * 1000;              // 自动检查节流：6 小时
 
@@ -2504,7 +2601,7 @@ function buildReport(opts){
                  : (x.k.id===last.k.id && ranked.length>1 ? '<span style="color:#9aa3b2;font-weight:700">💪 继续加油</span>' : '');
       return `<tr>
         <td>${i+1}</td>
-        <td>${x.k.name}（${GENDER_LABEL[x.k.gender]||''}）</td>
+        <td>${escHtml(x.k.name)}（${GENDER_LABEL[x.k.gender]||''}）</td>
         <td style="font-weight:700;color:#3b6fe0">${x.pts} 分</td>
         <td>${tag}</td>
       </tr>`;
@@ -2516,7 +2613,7 @@ function buildReport(opts){
         ${rows}
       </table>
       <div style="font-size:12px;color:#8a94a6;margin-top:6px;line-height:1.7">
-        💡 兄弟姐妹你追我赶，不比聪明比坚持！${top.k.name}暂时领先，其他小朋友加油追上哦～
+        💡 兄弟姐妹你追我赶，不比聪明比坚持！${escHtml(top.k.name)}暂时领先，其他小朋友加油追上哦～
       </div>`;
   }
 
@@ -2529,7 +2626,7 @@ function buildReport(opts){
     <tr>
       <td>${fmtTime(r.time)}</td>
       <td>${KIND_NAME[r.kind]}</td>
-      <td>${r.name}${multi?` · ${child}`:''}</td>
+      <td>${escHtml(r.name)}${multi?` · ${escHtml(child)}`:''}</td>
       <td style="font-weight:700;color:${r.pts>0?'#2e9e6b':'#e0594f'}">${r.pts>0?'+':''}${r.pts}</td>
     </tr>`).join('');
 
@@ -2543,8 +2640,8 @@ function buildReport(opts){
         `${String(d0.getHours()).padStart(2,'0')}:${String(d0.getMinutes()).padStart(2,'0')}`;
       const isToday = dayKey(latest.time) === dayKey(Date.now());
       emptyHint = `<div class="rp-hint">ℹ️ 这个范围里还没有记录。${
-        multi ? C().name : '你'
-      }最近一条记录是 <b>${dstr}</b>（${latest.name} ${latest.pts>0?'+':''}${latest.pts}）。${
+        multi ? escHtml(C().name) : '你'
+      }最近一条记录是 <b>${dstr}</b>（${escHtml(latest.name)} ${latest.pts>0?'+':''}${latest.pts}）。${
         isToday ? '' : '如果这条就是刚记的分，说明当时「记分日期」还停在那一天 —— 回记分页点一下「回到今天」再记，分数就会算进今天了。'
       }</div>`;
     }
@@ -2552,17 +2649,17 @@ function buildReport(opts){
   const exRows = sortedEx.map(e=>{
     const ok = total>=e.pts;
     return `<tr>
-      <td>${e.name}</td>
-      <td>${e.pts} 分</td>
+      <td>${escHtml(e.name)}</td>
+      <td>${Number(e.pts)||0} 分</td>
       <td style="color:${ok?'#2fb380':'#c3c9d4'};font-weight:700">${ok?'✅ 可兑换':`还差 ${e.pts-total} 分`}</td>
     </tr>`;
   }).join('');
 
-  const titleText = multi ? '👨‍👩‍👧‍👦 全家积分报告' : `⭐ ${C().name?C().name+'的':''}积分报告`;
+  const titleText = multi ? '👨‍👩‍👧‍👦 全家积分报告' : `⭐ ${C().name?escHtml(C().name)+'的':''}积分报告`;
   // 单宝宝显示余额卡；多宝宝在家庭榜里已展示，这里仍给当前宝宝一份明细
   const balanceHTML = multi ? `
     <div class="rp-balance">
-      <div><div class="v" style="color:#2b2f36">${total}</div><div class="l">${C().name}当前总积分</div></div>
+      <div><div class="v" style="color:#2b2f36">${total}</div><div class="l">${escHtml(C().name)}当前总积分</div></div>
       <div><div class="v" style="color:#2fb380">+${C().records.filter(r=>r.pts>0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计加分</div></div>
       <div><div class="v" style="color:#e0594f">${C().records.filter(r=>r.pts<0).reduce((s,r)=>s+r.pts,0)}</div><div class="l">累计扣减</div></div>
     </div>` : `
@@ -2582,10 +2679,10 @@ function buildReport(opts){
         <tr>
           <td>${fmtTime(r.time)}</td>
           <td>${KIND_NAME[r.kind]}</td>
-          <td>${r.name}</td>
+          <td>${escHtml(r.name)}</td>
           <td style="font-weight:700;color:${r.pts>0?'#2e9e6b':'#e0594f'}">${r.pts>0?'+':''}${r.pts}</td>
         </tr>`).join('');
-      return `<div class="sec">📋 ${k.name} · 共 ${ktot} 分 <small>（${scopeText}，最多30笔）</small></div>
+      return `<div class="sec">📋 ${escHtml(k.name)} · 共 ${ktot} 分 <small>（${scopeText}，最多30笔）</small></div>
         <table>
           <tr><th>时间</th><th>类型</th><th>项目</th><th>积分</th></tr>
           ${krows || '<tr><td colspan=4>该范围暂无记录</td></tr>'}
@@ -2606,7 +2703,7 @@ function buildReport(opts){
     </div>
     ${balanceHTML}
     ${familyHTML}
-    <div class="sec">🎁 兑换目标进度（${C().name}）</div>
+    <div class="sec">🎁 兑换目标进度（${escHtml(C().name)}）</div>
     <table>
       <tr><th>兑换项目</th><th>所需积分</th><th>状态</th></tr>
       ${exRows || '<tr><td colspan=3>暂无兑换项目</td></tr>'}
@@ -2636,13 +2733,15 @@ function dayLabel(y, m, d){
 }
 function reportScopeText(df){
   df = df || reportDateFilter;
-  if(df.d){
-    const lbl = dayLabel(df.y, df.m, df.d);
-    return (lbl?lbl+' ':'') + `${df.y}年${df.m}月${df.d}日`;
-  }
-  if(df.m) return `${df.y}年${df.m}月`;
-  if(df.y) return `${df.y}年`;
-  return '全部时间';
+  // 三个下拉各选各的，可能只选了"日"没选"月"。以前直接拼模板字符串，
+  // 缺哪个就会出现「null年11月22日」。这里按实际选中的维度拼，缺的就不写。
+  const parts = [];
+  if(df.y) parts.push(df.y + '年');
+  if(df.m) parts.push(df.m + '月');
+  if(df.d) parts.push(df.d + '日');
+  if(!parts.length) return '全部时间';
+  const lbl = (df.y && df.m && df.d) ? dayLabel(df.y, df.m, df.d) : null;
+  return (lbl ? lbl + ' ' : '') + parts.join('');
 }
 // 取出要导出的记录（已按日期范围筛选 + 按时间倒序，最多30笔）
 // child 传了只取那个宝宝；不传就按模式取：多人=全部宝宝，单人=当前宝宝
@@ -2786,11 +2885,27 @@ async function exportPDF(){
     toast('正在生成PDF…');
     try{
       const canvas = await html2canvas($('#report'), {scale:2, backgroundColor:'#ffffff'});
-      const img = canvas.toDataURL('image/jpeg', 0.92);
       const pdf = new jspdf.jsPDF('p','mm','a4');
-      // 按A4宽度等比缩放放置
-      const pw = 210, ph = canvas.height * pw / canvas.width;
-      pdf.addImage(img, 'JPEG', 0, 0, pw, Math.min(ph, 297));
+      const PW = 210, PH = 297;
+      // 这张图按 A4 宽等比换算后需要多高
+      const totalH = canvas.height * PW / canvas.width;
+      if(totalH <= PH + 1){
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PW, totalH);
+      }else{
+        // 🔴 超过一页时必须分页切片。以前是 Math.min(ph,297) 硬塞进一页，
+        //    多人报告 + 全部时间会需要 900mm 高，整张图被纵向压到 1/3，字糊成一片。
+        const pxPerPage = Math.floor(canvas.width * PH / PW);   // 每页装多少原图像素高
+        let y = 0, page = 0;
+        while(y < canvas.height){
+          const h = Math.min(pxPerPage, canvas.height - y);
+          const slice = document.createElement('canvas');
+          slice.width = canvas.width; slice.height = h;
+          slice.getContext('2d').drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+          if(page > 0) pdf.addPage('a4', 'p');
+          pdf.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PW, h * PW / canvas.width);
+          y += h; page++;
+        }
+      }
       saveFile(fname, pdf.output('blob'));
       if(!window.AndroidBridge) toast('📄 PDF已导出');
     }catch(e){ toast('生成失败，请重试'); }
@@ -2848,6 +2963,14 @@ function renderAll(){
   if(C().name) $('#appTitle').textContent = C().name+'的积分银行';
 }
 renderAll();
+
+// 上次的数据读不出来（JSON 被写坏）→ 原文已单独留副本，这里明确提示，
+// 别让用户以为数据凭空没了、接着又记分把仅存的原数据覆盖掉
+if(dataRecovered){
+  setTimeout(()=>{
+    toast('⚠️ 上次的数据没读出来，已单独留了副本。请到「设置 → 恢复数据」导入最近的备份');
+  }, 900);
+}
 
 // 打开页面 1.5 秒后静默查一次更新（6 小时内只请求一次），有新版才在「设置」tab 点红点
 setTimeout(maybeAutoCheckUpdate, 1500);

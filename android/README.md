@@ -81,9 +81,11 @@ gh release create v1.2.0 android/app/build/outputs/apk/release/app-release.apk \
 | 坑 | 表现 | 处理 |
 |---|---|---|
 | 不实现 `onJsConfirm` | 所有确认框静默返回 false，删除/兑换失效 | `WebChromeClient` 自实现 alert/confirm |
+| 不实现 `onJsPrompt` | `prompt()` 走 WebView 自带的英文框（`The page at "…" says:` + CANCEL/OK） | 自实现 `onJsPrompt`，中文标题 + 取消/确定 |
 | blob 链接下载 | 导出/备份静默失败 | JS 桥 `saveBase64()` 写「下载」目录，页面统一走 `saveFile()` |
 | `onPageFinished` 收加载遮罩 | DOM 好了但没画出来，露白屏 | 等 `postVisualStateCallback`，再加 8 秒兜底 |
 | 导出库 CDN 加载失败 | 「导出组件加载失败」且**永久失败** | 本地 vendor 优先 + 失败不缓存 Promise（可重试） |
 | 批量模式切宝宝 | 选中集合残留，会删到上一个宝宝的数据 | `switchChild` 里退出批量并清空选中 |
 | `file://` 给安装器 | targetSdk 24+ 直接 `FileUriExposedException` | 自写 `ApkProvider` 走 `content://` + 临时读授权 |
 | 没授「安装未知应用」 | 安装器一闪而过或直接被拒 | 先查 `canRequestPackageInstalls()`，没有就跳系统设置页 |
+| 返回键只看 tab | 弹窗打开时按返回，会被当成「切页/退出」 | onKeyDown 先调页面 `closeTopModal()`，关掉弹窗就吃掉这次返回 |

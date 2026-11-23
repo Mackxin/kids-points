@@ -17,6 +17,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
 import android.webkit.MimeTypeMap;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -26,6 +27,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import android.widget.EditText;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -167,6 +169,26 @@ public class MainActivity extends Activity {
                         .setPositiveButton("确定", (d, i) -> result.confirm())
                         .setNegativeButton("取消", (d, i) -> result.cancel())
                         .setCancelable(false)
+                        .show();
+                return true;
+            }
+
+            // 页面里「添加宝宝」「改名字」用的是 prompt()。不实现这个方法的话，
+            // WebView 会退回到它自带的英文对话框（CANCEL / OK + 一整段英文标题），
+            // 和上面 alert/confirm 的中文按钮风格不一致。这里统一成中文。
+            @Override
+            public boolean onJsPrompt(WebView v, String url, String msg, String defaultValue,
+                                      final JsPromptResult result) {
+                final EditText input = new EditText(MainActivity.this);
+                input.setText(defaultValue == null ? "" : defaultValue);
+                input.setSelection(input.getText().length());
+                input.setSingleLine(true);
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(msg)
+                        .setView(input)
+                        .setPositiveButton("确定", (d, i) -> result.confirm(input.getText().toString()))
+                        .setNegativeButton("取消", (d, i) -> result.cancel())
+                        .setOnCancelListener(d -> result.cancel())
                         .show();
                 return true;
             }
@@ -420,18 +442,19 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 返回键：批量选择中先退出批量 → 不在记分页先回记分页 → 记分页连按两次退出（防误触） */
+    /** 返回键：弹窗打开时先关弹窗 → 批量选择中先退出批量 → 不在记分页先回记分页 → 记分页连按两次退出（防误触） */
     @Override
     public boolean onKeyDown(int code, KeyEvent e) {
         if (code == KeyEvent.KEYCODE_BACK && web != null) {
             web.evaluateJavascript(
                     "(function(){"
+                            + "if(typeof closeTopModal==='function'&&closeTopModal())return 3;"
                             + "if(typeof batchMode!=='undefined'&&batchMode){toggleBatchMode();return 2;}"
                             + "var a=document.querySelector('.tab-page.active');"
                             + "if(a&&a.id!=='tab-record'){switchTab('record',document.querySelector('nav button'));return 1;}"
                             + "return 0;})()",
                     value -> {
-                        if ("1".equals(value) || "2".equals(value)) return;
+                        if ("1".equals(value) || "2".equals(value) || "3".equals(value)) return;
                         long now = System.currentTimeMillis();
                         if (now - lastBackAt < 2000) finish();
                         else { lastBackAt = now; toastOnUi("再按一次退出"); }
